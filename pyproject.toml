@@ -1,0 +1,59 @@
+[project]
+name = "renpy-language-server"
+version = "0.2.1"
+description = "Language server and formatter for Ren'Py scripts"
+readme = "README.md"
+authors = [
+    { name = "Oleksandr", email = "67645530+rockettap@users.noreply.github.com" }
+]
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE.md"]
+keywords = ["renpy", "lsp", "language-server", "formatter"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Text Editors :: Integrated Development Environments (IDE)",
+]
+dependencies = [
+    "pygls>=2.1,<3",
+    "typer>=0.27,<1",
+]
+
+[project.optional-dependencies]
+python-format = ["ruff>=0.16,<1"]
+
+[project.scripts]
+renpy-language-server = "renpy_language_server.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/rockettap/renpy-language-server"
+Repository = "https://github.com/rockettap/renpy-language-server"
+Issues = "https://github.com/rockettap/renpy-language-server/issues"
+Changelog = "https://github.com/rockettap/renpy-language-server/releases"
+
+[build-system]
+requires = ["uv_build>=0.13.6,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2,<10",
+    "pyright>=1.1,<2",
+    "ruff>=0.16,<1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "strict"
