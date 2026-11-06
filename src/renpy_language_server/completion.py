@@ -8,7 +8,7 @@ are supplied by the server and expanded in Phase 4.
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 
 from . import builtins as api
@@ -94,6 +94,9 @@ _CHARACTER_RE = re.compile(
     re.MULTILINE,
 )
 _WORD_RE = re.compile(r"[A-Za-z0-9_.$]*$")
+_TOKEN_RE = re.compile(r"[^\s]*$")
+_IMAGE_CLAUSES = ("at", "as", "behind", "onlayer", "with", "zorder")
+_LAYERS = ("master", "transient", "screens", "overlay")
 _TARGET_RE = re.compile(r"\S+\s+")
 _MEMBER_RE = re.compile(r"(?<![\w.])([A-Za-z_]\w*)\.([A-Za-z_]\w*)?$")
 _TRANSFORM_RE = re.compile(r"^[ \t]*transform[ \t]+([A-Za-z_]\w*)", re.MULTILINE)
@@ -337,7 +340,9 @@ def complete(
             _keyword_items() + _symbol_items("character", source, workspace),
         )
 
-    if _inside_string_or_comment(prefix):
+    if _inside_string_or_comment(prefix) and not (
+        _audio_string_context(prefix) and _inside_unterminated_string(prefix)
+    ):
         return CompletionResult(empty, [])
 
     member = _member_completion(prefix, workspace, container)
@@ -518,21 +523,194 @@ def _statement_context(
         start = _target_start(stripped, words=1) + indentation
         return CompletionResult(start, _transitions(source, workspace, prefix[start:]))
 
+    if first in {"window", "pause"} and (len(tokens) >= 2 or trailing_space):
+        start = _target_start(stripped, words=1) + indentation
+        items = [
+            Completion(name, "value", f"{first} value")
+            for name in completion_data().values_for(first)
+        ]
+        return CompletionResult(start, _filter_items(items, prefix[start:]))
+
     if first in {"show", "scene", "hide"} and (len(tokens) >= 2 or trailing_space):
         if len(tokens) >= 2 and tokens[1] in {"expression", "text"}:
             return CompletionResult(len(prefix), [])
+        specifier = _image_specifier_completion(source, prefix, workspace, first)
+        if specifier is not None:
+            return specifier
         start = _target_start(stripped, words=1) + indentation
         items = _images(source, workspace)
         items += _keyword_items("expression")
-        items += _keyword_items("screen")
+        if first != "scene":
+            # ``scene screen`` is not valid; ``show screen`` and ``hide screen`` are.
+            items += _keyword_items("screen")
         if first == "show":
             items += _keyword_items("text")
         return CompletionResult(start, _filter_kind(items, prefix[start:]))
 
     if first in {"play", "queue", "stop"} and (len(tokens) >= 2 or trailing_space):
-        return _audio_statement(source, prefix, workspace, first, indentation)
+        return _audio_statement(source, prefix, workspace, first)
+
+    if first == "voice" and (len(tokens) >= 2 or trailing_space):
+        return _voice_statement(source, prefix, workspace)
 
     return None
+
+
+def _voice_statement(
+    source: str,
+    prefix: str,
+    workspace: Mapping[str, Sequence[Completion]] | None,
+) -> CompletionResult:
+    """Complete ``voice <file>`` and the standalone ``voice sustain``."""
+    stripped = prefix.lstrip()
+    tokens = stripped.split()
+    trailing_space = stripped[-1].isspace()
+
+    typed = "" if trailing_space else _current_token(prefix)
+    start = len(prefix) - len(typed)
+    quote = typed[:1] if typed[:1] in "\"'" else ""
+    if quote:
+        typed = typed[1:]
+        start += 1
+
+    complete = tokens if trailing_space else tokens[:-1]
+    if len(complete) >= 2:
+        # ``voice "file.ogg"`` and ``voice sustain`` are complete statements.
+        return CompletionResult(len(prefix), [])
+
+    items = _audio_assets(source, workspace)
+    if quote:
+        items = [
+            replace(item, insert_text=_strip_quotes(item.insert_text or item.label))
+            for item in items
+        ]
+    else:
+        items = [
+            *items,
+            Completion(
+                "sustain",
+                "keyword",
+                "voice option",
+                "Continue the previous voice line",
+            ),
+        ]
+    return CompletionResult(start, _filter_items(items, typed))
+
+
+def _image_clause_items(first: str, exclude: str | None = None) -> list[Completion]:
+    names = ("onlayer", "with") if first == "hide" else _IMAGE_CLAUSES
+    return [
+        Completion(name, "keyword", "image clause", f"`{name}` clause")
+        for name in names
+        if name != exclude
+    ]
+
+
+def _is_clause_prefix(word: str) -> bool:
+    return bool(word) and any(name.startswith(word) for name in _IMAGE_CLAUSES)
+
+
+def _image_tags(
+    source: str, workspace: Mapping[str, Sequence[Completion]] | None
+) -> list[str]:
+    return sorted(
+        {item.label.split()[0] for item in _images(source, workspace) if item.label}
+    )
+
+
+def _clause_values(
+    clause: str,
+    source: str,
+    workspace: Mapping[str, Sequence[Completion]] | None,
+) -> list[Completion]:
+    if clause == "at":
+        return _transforms(source, workspace, "")
+    if clause == "with":
+        return _transitions(source, workspace, "")
+    if clause == "onlayer":
+        return [Completion(name, "value", "layer") for name in _LAYERS]
+    if clause in {"behind", "as"}:
+        return [
+            Completion(name, "value", "image tag")
+            for name in _image_tags(source, workspace)
+        ]
+    return []
+
+
+def _image_specifier_completion(
+    source: str,
+    prefix: str,
+    workspace: Mapping[str, Sequence[Completion]] | None,
+    first: str,
+) -> CompletionResult | None:
+    """Complete the clauses that follow an image target.
+
+    ``at`` is handled earlier because it also appears in ``label`` and
+    ``screen`` statements. This covers the remaining specifier clauses and
+    returns ``None`` while the image name itself is still being typed, so the
+    caller can offer images.
+    """
+    stripped = prefix.lstrip()
+    tokens = stripped.split()
+    if len(tokens) < 2:
+        return None
+
+    trailing_space = stripped[-1].isspace()
+    words = tokens[1:]
+    labels = {item.label for item in _images(source, workspace)}
+    tags = {label.split()[0] for label in labels if label}
+
+    def is_target(text: str) -> bool:
+        return text in labels or (first == "hide" and text in tags)
+
+    clause_index = next(
+        (
+            index
+            for index in range(len(words) - 1, -1, -1)
+            if words[index] in _IMAGE_CLAUSES
+        ),
+        None,
+    )
+    if clause_index is None:
+        if not trailing_space:
+            current = words[-1]
+            before = " ".join(words[:-1])
+            if before and is_target(before) and _is_clause_prefix(current):
+                start = len(prefix) - len(current)
+                return CompletionResult(
+                    start, _filter_items(_image_clause_items(first), current)
+                )
+            return None
+        if is_target(" ".join(words)):
+            return CompletionResult(len(prefix), _image_clause_items(first))
+        return None
+
+    clause = words[clause_index]
+    rest = words[clause_index + 1 :]
+    if not trailing_space:
+        current = rest[-1] if rest else clause
+        if rest and _is_clause_prefix(current):
+            start = len(prefix) - len(current)
+            return CompletionResult(
+                start, _filter_items(_image_clause_items(first), current)
+            )
+        if not rest:
+            return CompletionResult(
+                len(prefix),
+                [
+                    replace(item, insert_text=f" {item.label}")
+                    for item in _clause_values(clause, source, workspace)
+                ],
+            )
+        start = len(prefix) - len(current)
+        return CompletionResult(
+            start,
+            _filter_items(_clause_values(clause, source, workspace), current),
+        )
+
+    if not rest:
+        return CompletionResult(len(prefix), _clause_values(clause, source, workspace))
+    return CompletionResult(len(prefix), _image_clause_items(first, exclude=clause))
 
 
 def _audio_statement(
@@ -540,9 +718,9 @@ def _audio_statement(
     prefix: str,
     workspace: Mapping[str, Sequence[Completion]] | None,
     command: str,
-    indentation: int,
 ) -> CompletionResult:
     stripped = prefix.lstrip()
+    indentation = len(prefix) - len(stripped)
     tokens = stripped.split()
     trailing_space = stripped[-1].isspace()
     data = completion_data()
@@ -579,24 +757,18 @@ def _audio_statement(
             ),
         )
 
-    start = _target_start(stripped, words=2) + indentation
-    if len(tokens) == 2:
-        options = (
-            ["fadeout"]
-            if command == "stop"
-            else [
-                "fadein",
-                "fadeout",
-                "loop",
-                "noloop",
-                "if_changed",
-                "volume",
-            ]
-        )
-        items = _audio_assets(source, workspace)
-        items += [Completion(name, "keyword", "audio option") for name in options]
-        return CompletionResult(start, items)
-
+    options = (
+        ["fadeout"]
+        if command == "stop"
+        else [
+            "fadein",
+            "fadeout",
+            "loop",
+            "noloop",
+            "if_changed",
+            "volume",
+        ]
+    )
     option_names = {
         "fadein",
         "fadeout",
@@ -605,6 +777,52 @@ def _audio_statement(
         "if_changed",
         "volume",
     }
+
+    if command == "stop":
+        # ``stop <channel>`` takes no file, so everything after the channel is
+        # an option.
+        if trailing_space and tokens[-1] in option_names:
+            return CompletionResult(
+                len(prefix),
+                [
+                    Completion(name, "value", "audio option value")
+                    for name in completion_data().values_for(tokens[-1])
+                ],
+            )
+        if len(tokens) == 2 and trailing_space:
+            return CompletionResult(
+                len(prefix),
+                [Completion(name, "keyword", "audio option") for name in options],
+            )
+        start = len(prefix) - len(word)
+        return CompletionResult(
+            start,
+            _filter_items(
+                [Completion(name, "keyword", "audio option") for name in options],
+                word,
+            ),
+        )
+
+    # ``play`` and ``queue`` take a file before any option. Only offer audio
+    # files while that first argument is still being typed, otherwise a bare
+    # ``play music `` was dominated by fadein/fadeout keywords.
+    complete = tokens if trailing_space else tokens[:-1]
+    file_seen = any(token not in option_names for token in complete[2:])
+    if not file_seen:
+        typed = "" if trailing_space else _current_token(prefix)
+        start = len(prefix) - len(typed)
+        quote = typed[:1] if typed[:1] in "\"'" else ""
+        if quote:
+            typed = typed[1:]
+            start += 1
+        items = _audio_assets(source, workspace)
+        if quote:
+            items = [
+                replace(item, insert_text=_strip_quotes(item.insert_text or item.label))
+                for item in items
+            ]
+        return CompletionResult(start, _filter_items(items, typed))
+
     last = tokens[-1]
     if last in option_names and trailing_space:
         return CompletionResult(
@@ -619,21 +837,7 @@ def _audio_statement(
     return CompletionResult(
         start,
         _filter_items(
-            [
-                Completion(name, "keyword", "audio option")
-                for name in (
-                    ["fadeout"]
-                    if command == "stop"
-                    else [
-                        "fadein",
-                        "fadeout",
-                        "loop",
-                        "noloop",
-                        "if_changed",
-                        "volume",
-                    ]
-                )
-            ],
+            [Completion(name, "keyword", "audio option") for name in options],
             word,
         ),
     )
@@ -774,6 +978,12 @@ def _audio_assets(
     ]
     external = workspace.get("audio", ()) if workspace is not None else ()
     return _merge_items(local, external)
+
+
+def _strip_quotes(text: str) -> str:
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'":
+        return text[1:-1]
+    return text
 
 
 def _local_symbol_items(kind: str, source: str) -> list[Completion]:
@@ -1155,6 +1365,11 @@ def _current_word(prefix: str) -> str:
     return match.group(0) if match else ""
 
 
+def _current_token(prefix: str) -> str:
+    match = _TOKEN_RE.search(prefix)
+    return match.group(0) if match else ""
+
+
 def _word_start(prefix: str) -> int:
     return len(prefix) - len(_current_word(prefix))
 
@@ -1189,3 +1404,28 @@ def _inside_string_or_comment(prefix: str) -> bool:
         elif char == "#":
             return True
     return quote is not None
+
+
+def _inside_unterminated_string(prefix: str) -> bool:
+    """True when the cursor sits inside an open quoted string."""
+    quote: str | None = None
+    escaped = False
+    for char in prefix:
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+        elif char in "\"'":
+            quote = char
+        elif char == "#":
+            return False
+    return quote is not None
+
+
+def _audio_string_context(prefix: str) -> bool:
+    """True for audio statements whose file argument is a string."""
+    words = prefix.lstrip().split()
+    return bool(words) and words[0] in {"play", "queue", "voice"}

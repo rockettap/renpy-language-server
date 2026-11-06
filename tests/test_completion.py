@@ -75,11 +75,50 @@ def test_show_scene_and_hide_offer_images() -> None:
             item.label for item in result.items
         }
 
+    assert "screen" not in labels("    scene ")
+    assert "screen" in labels("    show ")
+    assert "screen" in labels("    hide ")
+
 
 def test_show_target_replaces_the_whole_typed_target() -> None:
     result = complete(SOURCE, "    show eileen h")
     assert result.replace_start == len("    show ")
     assert [item.label for item in result.items] == ["eileen happy"]
+
+
+def test_show_target_offers_specifier_clauses() -> None:
+    result = complete(SOURCE, "    show eileen happy ")
+    assert result.replace_start == len("    show eileen happy ")
+    assert {"at", "as", "behind", "onlayer", "with", "zorder"} == {
+        item.label for item in result.items
+    }
+
+    partial = complete(SOURCE, "    show eileen happy w")
+    assert [item.label for item in partial.items] == ["with"]
+    assert partial.replace_start == len("    show eileen happy ")
+
+    # A target that is still being typed keeps offering images.
+    assert [item.label for item in complete(SOURCE, "    show eileen ").items] == [
+        "eileen happy",
+        "eileen sad",
+    ]
+
+    # ``hide`` only takes the clauses that affect hiding.
+    hide = complete(SOURCE, "    hide eileen ")
+    assert {item.label for item in hide.items} == {"onlayer", "with"}
+
+
+def test_specifier_clauses_offer_values() -> None:
+    transition = complete(SOURCE, "    show eileen happy with ")
+    assert {"None", "Dissolve"} <= {item.label for item in transition.items}
+    dissolve = complete(SOURCE, "    show eileen happy with dis")
+    assert dissolve.items[0].label.startswith("Dissolve")
+    layers = complete(SOURCE, "    show eileen happy onlayer ")
+    assert {"master", "transient", "screens", "overlay"} == {
+        item.label for item in layers.items
+    }
+    behind = complete(SOURCE, "    show eileen happy behind ")
+    assert {"bg", "eileen"} == {item.label for item in behind.items}
 
 
 def test_jump_and_call_offer_labels() -> None:
@@ -295,6 +334,13 @@ def test_with_offers_builtin_and_user_transitions() -> None:
     assert {"Dissolve", "Fade", "None"} <= {item.label for item in builtin.items}
 
 
+def test_window_and_pause_offer_their_values() -> None:
+    assert {"auto", "hide", "show"} == set(labels("    window "))
+    assert {"0.5", "1.0", "1.5", "2.0"} == set(labels("    pause "))
+    assert labels("    window au") == ["auto"]
+    assert labels("    pause 1.5") == ["1.5"]
+
+
 def test_audio_channels_assets_and_options() -> None:
     source = 'define audio.theme = "audio/theme.ogg"\n'
     channels = complete(source, "    play ", None, None, 1)
@@ -306,10 +352,30 @@ def test_audio_channels_assets_and_options() -> None:
     labels = {item.label for item in assets.items}
     assert "audio.theme" in labels
     assert "audio/chapter.ogg" in labels
-    assert {"loop", "noloop", "fadein", "volume"} <= labels
+    # Options only make sense after the file argument.
+    assert not {"loop", "noloop", "fadein", "volume"} & labels
+
+    typed = complete(source, '    play music "audio/ch', extended_workspace(), None, 1)
+    assert [item.label for item in typed.items] == ["audio/chapter.ogg"]
+    assert typed.items[0].insert_text == "audio/chapter.ogg"
+
+    options = complete(
+        source,
+        '    play music "audio/chapter.ogg" ',
+        extended_workspace(),
+        None,
+        1,
+    )
+    option_labels = {item.label for item in options.items}
+    assert {"loop", "noloop", "fadein", "volume"} <= option_labels
+    assert not {"audio.theme", "audio/chapter.ogg"} & option_labels
 
     stop = complete(source, "    stop music ", None, None, 1)
     assert "fadeout" in {item.label for item in stop.items}
+    assert "fadein" not in {item.label for item in stop.items}
+
+    fadeout = complete(source, "    stop music fadeout ", None, None, 1)
+    assert {"0.5", "1.0", "1.5", "2.0"} == {item.label for item in fadeout.items}
 
 
 def test_audio_namespace_completes_defined_variables() -> None:
@@ -317,6 +383,31 @@ def test_audio_namespace_completes_defined_variables() -> None:
     result = complete(source, "    play music audio.th", None, None, 1)
     assert [item.label for item in result.items] == ["theme"]
     assert result.items[0].insert_text == "audio.theme"
+
+
+def test_voice_offers_audio_files_and_sustain() -> None:
+    source = 'define audio.theme = "audio/theme.ogg"\n'
+    result = complete(source, "    voice ", extended_workspace(), None, 1)
+    labels = {item.label for item in result.items}
+    assert {"audio.theme", "audio/chapter.ogg", "sustain"} <= labels
+
+    typed = complete(source, '    voice "audio/ch', extended_workspace(), None, 1)
+    assert [item.label for item in typed.items] == ["audio/chapter.ogg"]
+    assert typed.items[0].insert_text == "audio/chapter.ogg"
+
+    assert (
+        complete(
+            source,
+            '    voice "audio/chapter.ogg" ',
+            extended_workspace(),
+            None,
+            1,
+        ).items
+        == []
+    )
+    assert [item.label for item in complete(source, "    voice sus").items] == [
+        "sustain"
+    ]
 
 
 def test_screen_body_elements_properties_values_and_actions() -> None:

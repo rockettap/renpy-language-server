@@ -59,6 +59,20 @@ def test_audio_assets_are_namespaced(tmp_path: Path) -> None:
     assert index.find_audio("theme.ogg") is None
 
 
+def test_audio_assets_are_found_anywhere_below_game(tmp_path: Path) -> None:
+    _touch(tmp_path / "game" / "legacy" / "audio" / "theme.ogg")
+    _touch(tmp_path / "game" / "audio" / "ui" / "click.mp3")
+    index = AssetIndex()
+    index.scan([tmp_path])
+
+    assert sorted(asset.name for asset in index.audio()) == [
+        "audio/ui/click.mp3",
+        "legacy/audio/theme.ogg",
+    ]
+    assert index.find_audio("legacy/audio/theme.ogg") is not None
+    assert index.find_audio("audio/ui/click.mp3") is not None
+
+
 def test_missing_folders_produce_an_empty_index(tmp_path: Path) -> None:
     index = AssetIndex()
     index.scan([tmp_path])

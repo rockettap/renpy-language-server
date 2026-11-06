@@ -38,9 +38,24 @@ class AssetIndex:
             for directory in (root / "game" / "images", root / "images"):
                 if directory.is_dir():
                     _scan_directory(directory, "image", IMAGE_SUFFIXES, images)
-            for directory in (root / "game" / "audio", root / "audio"):
+
+            # Ren'Py resolves audio paths from the game directory, so a file
+            # anywhere below it is playable as "relative/path.ogg". Scanning
+            # only game/audio missed soundtracks kept in subfolders such as
+            # game/legacy/audio.
+            game = root / "game"
+            if game.is_dir():
+                _scan_directory(game, "audio", AUDIO_SUFFIXES, audio)
+            else:
+                directory = root / "audio"
                 if directory.is_dir():
-                    _scan_directory(directory, "audio", AUDIO_SUFFIXES, audio)
+                    _scan_directory(
+                        directory,
+                        "audio",
+                        AUDIO_SUFFIXES,
+                        audio,
+                        name_prefix="audio/",
+                    )
 
         self._images = images
         self._audio = audio
@@ -80,6 +95,7 @@ def _scan_directory(
     kind: AssetKind,
     suffixes: frozenset[str],
     target: dict[str, Asset],
+    name_prefix: str = "",
 ) -> None:
     for path in sorted(directory.rglob("*")):
         if len(target) >= MAX_ASSETS:
@@ -95,7 +111,7 @@ def _scan_directory(
         if kind == "image":
             name = _image_name(relative)
         else:
-            name = f"audio/{relative.as_posix()}"
+            name = f"{name_prefix}{relative.as_posix()}"
         target.setdefault(name, Asset(kind=kind, name=name, path=path))
 
 
