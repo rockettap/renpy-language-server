@@ -72,6 +72,9 @@ _KEYWORDS: tuple[Completion, ...] = (
     Completion("queue", "keyword", "statement", "Queue audio"),
     Completion("voice", "keyword", "statement", "Play a voice line"),
     Completion("window", "keyword", "statement", "Control the dialogue window"),
+    Completion(
+        "camera", "keyword", "statement", "Move the camera: `camera at transform`"
+    ),
     Completion("$", "keyword", "statement", "Run a Python statement"),
 )
 
@@ -83,7 +86,7 @@ _AFTER_KEYWORD = {
     "call": "label",
 }
 
-_LABEL_RE = re.compile(r"^[ \t]*label[ \t]+([A-Za-z_.][\w.]*)", re.MULTILINE)
+_LABEL_RE = re.compile(r"^label[ \t]+([A-Za-z_.][\w.]*)", re.MULTILINE)
 _IMAGE_RE = re.compile(r"^[ \t]*image[ \t]+([^=\n:]+?)[ \t]*(?:=|:)", re.MULTILINE)
 _SCREEN_RE = re.compile(
     r"^[ \t]*screen[ \t]+([A-Za-z_]\w*)[ \t]*(?:\(|:)", re.MULTILINE
@@ -96,7 +99,13 @@ _CHARACTER_RE = re.compile(
 _WORD_RE = re.compile(r"[A-Za-z0-9_.$]*$")
 _TOKEN_RE = re.compile(r"[^\s]*$")
 _IMAGE_CLAUSES = ("at", "as", "behind", "onlayer", "with", "zorder")
+_SCREEN_CLAUSES = {
+    "show": ("nopredict", "with", "onlayer", "zorder", "as"),
+    "call": ("nopredict", "with", "onlayer", "zorder", "as"),
+    "hide": ("with", "onlayer"),
+}
 _LAYERS = ("master", "transient", "screens", "overlay")
+_LAYER_CLAUSES = ("at",)
 _TARGET_RE = re.compile(r"\S+\s+")
 _MEMBER_RE = re.compile(r"(?<![\w.])([A-Za-z_]\w*)\.([A-Za-z_]\w*)?$")
 _TRANSFORM_RE = re.compile(r"^[ \t]*transform[ \t]+([A-Za-z_]\w*)", re.MULTILINE)
@@ -469,6 +478,9 @@ def _statement_context(
 
     if first == "call" and len(tokens) >= 2 and tokens[1] == "screen":
         if len(tokens) >= 3 or trailing_space:
+            specifier = _screen_specifier_completion(source, prefix, workspace, "call")
+            if specifier is not None:
+                return specifier
             start = _target_start(stripped, words=2) + indentation
             return CompletionResult(start, _screens(source, workspace, prefix[start:]))
         return CompletionResult(
@@ -478,6 +490,9 @@ def _statement_context(
 
     if first in {"show", "hide"} and len(tokens) >= 2 and tokens[1] == "screen":
         if len(tokens) >= 3 or trailing_space:
+            specifier = _screen_specifier_completion(source, prefix, workspace, first)
+            if specifier is not None:
+                return specifier
             start = _target_start(stripped, words=2) + indentation
             return CompletionResult(start, _screens(source, workspace, prefix[start:]))
         return CompletionResult(
@@ -531,20 +546,39 @@ def _statement_context(
         ]
         return CompletionResult(start, _filter_items(items, prefix[start:]))
 
+    if first == "camera" and (len(tokens) >= 2 or trailing_space):
+        completion = _camera_completion(source, prefix, workspace)
+        if completion is not None:
+            return completion
+
+    if first == "show" and len(tokens) >= 2 and tokens[1] == "layer":
+        return _show_layer_completion(source, prefix, workspace)
+
     if first in {"show", "scene", "hide"} and (len(tokens) >= 2 or trailing_space):
-        if len(tokens) >= 2 and tokens[1] in {"expression", "text"}:
-            return CompletionResult(len(prefix), [])
+        if len(tokens) >= 2 and tokens[1] == "expression":
+            return _declared_clause_completion(
+                source,
+                prefix,
+                workspace,
+                2,
+                _image_clause_items(first),
+                require_target=True,
+            )
+        if len(tokens) >= 2 and tokens[1] == "text":
+            return _declared_clause_completion(
+                source, prefix, workspace, 2, _image_clause_items(first)
+            )
         specifier = _image_specifier_completion(source, prefix, workspace, first)
         if specifier is not None:
             return specifier
         start = _target_start(stripped, words=1) + indentation
         items = _images(source, workspace)
-        items += _keyword_items("expression")
+        items = _merge_items(items, _keyword_items("expression"))
         if first != "scene":
             # ``scene screen`` is not valid; ``show screen`` and ``hide screen`` are.
-            items += _keyword_items("screen")
+            items = _merge_items(items, _keyword_items("screen"))
         if first == "show":
-            items += _keyword_items("text")
+            items = _merge_items(items, _keyword_items("text"))
         return CompletionResult(start, _filter_kind(items, prefix[start:]))
 
     if first in {"play", "queue", "stop"} and (len(tokens) >= 2 or trailing_space):
@@ -606,8 +640,8 @@ def _image_clause_items(first: str, exclude: str | None = None) -> list[Completi
     ]
 
 
-def _is_clause_prefix(word: str) -> bool:
-    return bool(word) and any(name.startswith(word) for name in _IMAGE_CLAUSES)
+def _is_clause_prefix(word: str, clauses: Sequence[str] = _IMAGE_CLAUSES) -> bool:
+    return bool(word) and any(name.startswith(word) for name in clauses)
 
 
 def _image_tags(
@@ -713,6 +747,237 @@ def _image_specifier_completion(
     return CompletionResult(len(prefix), _image_clause_items(first, exclude=clause))
 
 
+def _clause_tail(
+    source: str,
+    prefix: str,
+    workspace: Mapping[str, Sequence[Completion]] | None,
+    clause: str,
+    rest: list[str],
+    trailing_space: bool,
+    items: list[Completion],
+) -> CompletionResult:
+    """Complete the values of ``clause`` and any clauses that follow it."""
+    remaining = [item for item in items if item.label != clause]
+    if not trailing_space:
+        current = rest[-1] if rest else clause
+        if rest and any(item.label.startswith(current) for item in remaining):
+            start = len(prefix) - len(current)
+            return CompletionResult(start, _filter_items(remaining, current))
+        if not rest:
+            return CompletionResult(
+                len(prefix),
+                [
+                    replace(item, insert_text=f" {item.label}")
+                    for item in _clause_values(clause, source, workspace)
+                ],
+            )
+        start = len(prefix) - len(current)
+        return CompletionResult(
+            start,
+            _filter_items(_clause_values(clause, source, workspace), current),
+        )
+    if not rest:
+        return CompletionResult(len(prefix), _clause_values(clause, source, workspace))
+    return CompletionResult(len(prefix), remaining)
+
+
+def _declared_clause_completion(
+    source: str,
+    prefix: str,
+    workspace: Mapping[str, Sequence[Completion]] | None,
+    clause_start: int,
+    items: list[Completion],
+    require_target: bool = False,
+) -> CompletionResult:
+    """Complete clauses after a target whose end is already known.
+
+    ``clause_start`` is the token index at which clauses may begin. When
+    ``require_target`` is set, the clause keyword search only starts once at
+    least one target token has been typed.
+    """
+    stripped = prefix.lstrip()
+    tokens = stripped.split()
+    trailing_space = stripped[-1].isspace()
+    clauses = tuple(item.label for item in items)
+    words = tokens[clause_start:] if len(tokens) > clause_start else []
+
+    if require_target and not words:
+        return CompletionResult(len(prefix), [])
+
+    clause_index = next(
+        (index for index, word in enumerate(words) if word in clauses), None
+    )
+    if clause_index is None:
+        if not trailing_space:
+            current = words[-1] if words else ""
+            if current and _is_clause_prefix(current, clauses):
+                start = len(prefix) - len(current)
+                return CompletionResult(start, _filter_items(items, current))
+            return CompletionResult(len(prefix), [])
+        return CompletionResult(len(prefix), items)
+
+    clause = words[clause_index]
+    return _clause_tail(
+        source,
+        prefix,
+        workspace,
+        clause,
+        words[clause_index + 1 :],
+        trailing_space,
+        items,
+    )
+
+
+def _layer_values() -> list[Completion]:
+    return [Completion(name, "value", "layer") for name in _LAYERS]
+
+
+def _show_layer_completion(
+    source: str,
+    prefix: str,
+    workspace: Mapping[str, Sequence[Completion]] | None,
+) -> CompletionResult:
+    """Complete ``show layer <layer> [at transforms]``."""
+    stripped = prefix.lstrip()
+    tokens = stripped.split()
+    trailing_space = stripped[-1].isspace()
+
+    if len(tokens) == 2:
+        if not trailing_space:
+            return CompletionResult(len(prefix), [])
+        return CompletionResult(len(prefix), _layer_values())
+    if len(tokens) == 3 and not trailing_space:
+        start = len(prefix) - len(tokens[2])
+        return CompletionResult(start, _filter_items(_layer_values(), tokens[2]))
+    return _declared_clause_completion(
+        source, prefix, workspace, 3, _clause_items(_LAYER_CLAUSES)
+    )
+
+
+def _camera_completion(
+    source: str,
+    prefix: str,
+    workspace: Mapping[str, Sequence[Completion]] | None,
+) -> CompletionResult | None:
+    """Complete ``camera [layer] [at transforms]``."""
+    stripped = prefix.lstrip()
+    tokens = stripped.split()
+    trailing_space = stripped[-1].isspace()
+    if len(tokens) == 1:
+        if not trailing_space:
+            return None
+        items = _layer_values() + _clause_items(_LAYER_CLAUSES)
+        return CompletionResult(len(prefix), items)
+
+    if tokens[1] in _LAYER_CLAUSES:
+        return _declared_clause_completion(
+            source, prefix, workspace, 1, _clause_items(_LAYER_CLAUSES)
+        )
+    if len(tokens) == 2 and not trailing_space:
+        items = _layer_values() + _clause_items(_LAYER_CLAUSES)
+        return CompletionResult(
+            len(prefix) - len(tokens[1]), _filter_items(items, tokens[1])
+        )
+    return _declared_clause_completion(
+        source, prefix, workspace, 2, _clause_items(_LAYER_CLAUSES)
+    )
+
+
+def _clause_items(
+    clauses: Sequence[str], exclude: str | None = None
+) -> list[Completion]:
+    return [
+        Completion(name, "keyword", "clause", f"`{name}` clause")
+        for name in clauses
+        if name != exclude
+    ]
+
+
+def _screen_clause_items(command: str, exclude: str | None = None) -> list[Completion]:
+    return [
+        Completion(name, "keyword", "screen clause", f"`{name}` clause")
+        for name in _SCREEN_CLAUSES[command]
+        if name != exclude
+    ]
+
+
+def _screen_clause_values(
+    clause: str,
+    source: str,
+    workspace: Mapping[str, Sequence[Completion]] | None,
+) -> list[Completion]:
+    if clause == "with":
+        return _transitions(source, workspace, "")
+    if clause == "onlayer":
+        return [Completion(name, "value", "layer") for name in _LAYERS]
+    return []
+
+
+def _screen_specifier_completion(
+    source: str,
+    prefix: str,
+    workspace: Mapping[str, Sequence[Completion]] | None,
+    command: str,
+) -> CompletionResult | None:
+    """Complete clauses after the screen name in show/hide/call screen."""
+    stripped = prefix.lstrip()
+    tokens = stripped.split()
+    if len(tokens) < 3:
+        return None
+
+    trailing_space = stripped[-1].isspace()
+    words = tokens[2:]
+    clauses = _SCREEN_CLAUSES[command]
+    names = {item.label for item in _symbol_items("screen", source, workspace)}
+
+    clause_index = next(
+        (index for index in range(len(words) - 1, -1, -1) if words[index] in clauses),
+        None,
+    )
+    if clause_index is None:
+        if not trailing_space:
+            current = words[-1]
+            before = " ".join(words[:-1])
+            if before in names and _is_clause_prefix(current, clauses):
+                start = len(prefix) - len(current)
+                return CompletionResult(
+                    start, _filter_items(_screen_clause_items(command), current)
+                )
+            return None
+        if " ".join(words) in names:
+            return CompletionResult(len(prefix), _screen_clause_items(command))
+        return None
+
+    clause = words[clause_index]
+    rest = words[clause_index + 1 :]
+    if not trailing_space:
+        current = rest[-1] if rest else clause
+        if rest and _is_clause_prefix(current, clauses):
+            start = len(prefix) - len(current)
+            return CompletionResult(
+                start, _filter_items(_screen_clause_items(command), current)
+            )
+        if not rest:
+            return CompletionResult(
+                len(prefix),
+                [
+                    replace(item, insert_text=f" {item.label}")
+                    for item in _screen_clause_values(clause, source, workspace)
+                ],
+            )
+        start = len(prefix) - len(current)
+        return CompletionResult(
+            start,
+            _filter_items(_screen_clause_values(clause, source, workspace), current),
+        )
+
+    if not rest:
+        return CompletionResult(
+            len(prefix), _screen_clause_values(clause, source, workspace)
+        )
+    return CompletionResult(len(prefix), _screen_clause_items(command, exclude=clause))
+
+
 def _audio_statement(
     source: str,
     prefix: str,
@@ -781,7 +1046,7 @@ def _audio_statement(
     if command == "stop":
         # ``stop <channel>`` takes no file, so everything after the channel is
         # an option.
-        if trailing_space and tokens[-1] in option_names:
+        if trailing_space and tokens[-1] in options:
             return CompletionResult(
                 len(prefix),
                 [
@@ -794,6 +1059,8 @@ def _audio_statement(
                 len(prefix),
                 [Completion(name, "keyword", "audio option") for name in options],
             )
+        if trailing_space:
+            return CompletionResult(len(prefix), [])
         start = len(prefix) - len(word)
         return CompletionResult(
             start,
@@ -899,7 +1166,12 @@ def _labels(
 def _images(
     source: str, workspace: Mapping[str, Sequence[Completion]] | None
 ) -> list[Completion]:
-    return _symbol_items("image", source, workspace)
+    items = _symbol_items("image", source, workspace)
+    builtins = [
+        Completion(name, "image", "built-in image")
+        for name in sorted(api.BUILTIN_IMAGES)
+    ]
+    return _merge_items(items, builtins)
 
 
 def _screens(
@@ -907,7 +1179,12 @@ def _screens(
     workspace: Mapping[str, Sequence[Completion]] | None,
     typed: str,
 ) -> list[Completion]:
-    return _filter_kind(_symbol_items("screen", source, workspace), typed)
+    items = _symbol_items("screen", source, workspace)
+    builtins = [
+        Completion(name, "screen", "built-in screen")
+        for name in sorted(api.BUILTIN_SCREENS)
+    ]
+    return _filter_kind(_merge_items(items, builtins), typed)
 
 
 def _transforms(
@@ -1188,8 +1465,15 @@ def _dialogue_completion(
     prefix: str,
     workspace: Mapping[str, Sequence[Completion]] | None,
 ) -> CompletionResult | None:
-    """Complete image attributes after a character speaking tag."""
+    """Complete image attributes after a character speaking tag.
+
+    Attributes belong between the speaker tag and the dialogue string. Once a
+    quote appears, the line has moved on, so nothing is offered inside or after
+    the spoken text.
+    """
     stripped = prefix.lstrip()
+    if '"' in stripped or "'" in stripped:
+        return None
     tokens = stripped.split()
     if not tokens:
         return None
@@ -1202,6 +1486,13 @@ def _dialogue_completion(
     if not tag:
         return None
     attributes = _image_attributes(source, tag)
+    if not attributes:
+        return None
+
+    used = tokens[1:]
+    if not trailing_space:
+        used = used[:-1]
+    attributes = [name for name in attributes if name not in used]
     if not attributes:
         return None
     word = _current_word(prefix)
@@ -1236,6 +1527,11 @@ def _python_completion(
             start, _filter_items(list(_python_items()) + extra, word)
         )
 
+    if first == "for" and re.search(r"\bin\b", stripped):
+        return CompletionResult(
+            start, _filter_items(list(_python_items()) + extra, word)
+        )
+
     if first in {"define", "default"} and "=" in stripped:
         start = _word_start(prefix)
         typed = prefix[start:]
@@ -1246,7 +1542,8 @@ def _python_completion(
     if line_index >= 0 and _in_python_block(source, line_index):
         if "=" in prefix or stripped.startswith(("return ", "raise ")):
             return None
-        return CompletionResult(start, _filter_items(list(_python_items()), word))
+        items = list(_python_items()) + extra
+        return CompletionResult(start, _filter_items(items, word))
 
     return None
 
