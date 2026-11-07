@@ -6,7 +6,7 @@ from typing import Literal
 
 AssetKind = Literal["image", "audio"]
 
-IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".avif"})
+IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".avif", ".svg"})
 AUDIO_SUFFIXES = frozenset({".ogg", ".opus", ".mp3", ".wav", ".mp2"})
 MAX_ASSETS = 20_000
 
@@ -110,11 +110,29 @@ def _scan_directory(
             continue
         if kind == "image":
             name = _image_name(relative)
+            asset = Asset(kind=kind, name=name, path=path)
+            previous = target.get(name)
+            # Ren'Py prefers a plain image over an oversampled variant with the
+            # same name (``eileen happy.png`` over ``eileen happy@2.png``).
+            if previous is None or (
+                _is_oversampled(previous.path) and not _is_oversampled(path)
+            ):
+                target[name] = asset
         else:
             name = f"{name_prefix}{relative.as_posix()}"
-        target.setdefault(name, Asset(kind=kind, name=name, path=path))
+            target.setdefault(name, Asset(kind=kind, name=name, path=path))
 
 
 def _image_name(relative: Path) -> str:
-    parts = list(relative.with_suffix("").parts)
-    return " ".join(part.replace("_", " ") for part in parts)
+    """Return the automatic image name for a file in the images directory.
+
+    Ren'Py uses the lowercased file name only, ignoring subdirectories and
+    stripping an ``@N`` oversampling suffix. Underscores are preserved.
+    """
+    base = relative.stem.lower()
+    name, _, _ = base.partition("@")
+    return name
+
+
+def _is_oversampled(path: Path) -> bool:
+    return "@" in path.stem

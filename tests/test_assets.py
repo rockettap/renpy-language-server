@@ -10,17 +10,50 @@ def _touch(path: Path) -> None:
     path.write_bytes(b"")
 
 
-def test_scans_nested_images_and_converts_names(tmp_path: Path) -> None:
+def test_scans_nested_images_using_only_the_file_name(tmp_path: Path) -> None:
     _touch(tmp_path / "game" / "images" / "bg_room.png")
     _touch(tmp_path / "game" / "images" / "eileen" / "happy.png")
     index = AssetIndex()
     index.scan([tmp_path])
 
-    assert sorted(asset.name for asset in index.images()) == [
-        "bg room",
-        "eileen happy",
-    ]
+    assert sorted(asset.name for asset in index.images()) == ["bg_room", "happy"]
+    assert index.find_image("happy") is not None
+    assert index.find_image("eileen happy") is None
+
+
+def test_image_names_are_lowercased(tmp_path: Path) -> None:
+    _touch(tmp_path / "game" / "images" / "Eileen Happy.png")
+    index = AssetIndex()
+    index.scan([tmp_path])
+
     assert index.find_image("eileen happy") is not None
+
+
+def test_oversampling_suffix_is_stripped(tmp_path: Path) -> None:
+    _touch(tmp_path / "game" / "images" / "eileen happy@2.png")
+    index = AssetIndex()
+    index.scan([tmp_path])
+
+    assert index.find_image("eileen happy") is not None
+
+
+def test_plain_image_takes_precedence_over_oversampled(tmp_path: Path) -> None:
+    _touch(tmp_path / "game" / "images" / "aaa" / "bg@2.png")
+    _touch(tmp_path / "game" / "images" / "zzz" / "bg.png")
+    index = AssetIndex()
+    index.scan([tmp_path])
+
+    asset = index.find_image("bg")
+    assert asset is not None
+    assert asset.path.name == "bg.png"
+
+
+def test_svg_images_are_scanned(tmp_path: Path) -> None:
+    _touch(tmp_path / "game" / "images" / "logo.svg")
+    index = AssetIndex()
+    index.scan([tmp_path])
+
+    assert index.find_image("logo") is not None
 
 
 def test_ignores_unsupported_extensions_and_hidden_files(tmp_path: Path) -> None:
