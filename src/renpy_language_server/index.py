@@ -242,9 +242,11 @@ def parse_document(
             parsed = None
         if (
             parsed is not None
-            and parsed[0] == "variable"
+            and parsed[0] != "screen"
             and _in_screen(analysis, line.start_line)
         ):
+            # Screen-language elements such as ``label _("Text")`` look like
+            # top-level statements once indentation is stripped.
             parsed = None
         if parsed is not None:
             kind, name, detail, parameters, container = parsed
@@ -367,7 +369,11 @@ def label_contexts(analysis: Analysis) -> list[str | None]:
     for item in analysis.lines:
         if item.kind == "code":
             parsed = _parse_line(item.text)
-            if parsed is not None and parsed[0] == "label":
+            if (
+                parsed is not None
+                and parsed[0] == "label"
+                and not _in_screen(analysis, item.start_line)
+            ):
                 name = parsed[1]
                 if not name.startswith("."):
                     current = name.split(".", 1)[0]
@@ -950,13 +956,17 @@ def scan_workspace(
         if not root.is_dir():
             continue
 
-        for path in sorted(root.rglob("*")):
+        # Ren'Py only loads scripts from the project's ``game`` directory. If
+        # the workspace points at that directory itself, scan it directly.
+        base = root / "game" if (root / "game").is_dir() else root
+
+        for path in sorted(base.rglob("*")):
             if path.suffix.lower() not in SOURCE_SUFFIXES:
                 continue
             if len(documents) >= MAX_FILES:
                 break
             try:
-                relative = path.relative_to(root)
+                relative = path.relative_to(base)
             except ValueError:
                 continue
             if _skipped(relative):

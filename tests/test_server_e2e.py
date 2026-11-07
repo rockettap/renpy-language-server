@@ -718,7 +718,7 @@ def test_local_labels_over_stdio(tmp_path: Path) -> None:
 def test_hover_over_stdio(tmp_path: Path) -> None:
     (tmp_path / "game" / "images").mkdir(parents=True)
     (tmp_path / "game" / "images" / "bg room.png").write_bytes(b"")
-    (tmp_path / "other.rpy").write_text(
+    (tmp_path / "game" / "other.rpy").write_text(
         "# Other label.\nlabel other:\n    return\n", encoding="utf-8"
     )
     source = "label start:\n    jump other\n    show bg room\n    renpy.pause(1.0)\n"
