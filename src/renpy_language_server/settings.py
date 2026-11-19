@@ -9,6 +9,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, replace
 from typing import Any, Literal, cast
 
+from .numeric_args import (
+    ATL_WARPERS,
+    DEFAULT_NUMERIC_FAMILIES,
+    NumericStyle,
+    coerce_families,
+    coerce_style,
+    coerce_warpers,
+)
+
 ParserName = Literal["light", "tree-sitter", "auto"]
 DiagnosticSeveritySetting = Literal["error", "warning", "off"]
 DiagnosticMode = Literal["open", "workspace"]
@@ -48,6 +57,11 @@ class Settings:
     align_equals: bool = True
     normalize_spacing: bool = True
     normalize_quotes: bool = True
+    normalize_numeric_args: bool = True
+    numeric_style: NumericStyle = "bare"
+    numeric_floats: bool = True
+    numeric_families: frozenset[str] = DEFAULT_NUMERIC_FAMILIES
+    numeric_warpers: frozenset[str] = ATL_WARPERS
     format_python: bool = False
     diagnostics: bool = True
     unknown_label_diagnostics: bool = True
@@ -142,6 +156,8 @@ def _coerce(key: str, value: Any) -> Any | None:
         "align_equals",
         "normalize_spacing",
         "normalize_quotes",
+        "normalize_numeric_args",
+        "numeric_floats",
         "format_python",
         "diagnostics",
         "unknown_label_diagnostics",
@@ -161,6 +177,12 @@ def _coerce(key: str, value: Any) -> Any | None:
         return value if isinstance(value, bool) else None
     if key == "parser":
         return value if isinstance(value, str) and value in _PARSERS else None
+    if key == "numeric_style":
+        return coerce_style(value)
+    if key == "numeric_families":
+        return coerce_families(value)
+    if key == "numeric_warpers":
+        return coerce_warpers(value)
     if key == "diagnostics_mode":
         if not isinstance(value, str):
             return None

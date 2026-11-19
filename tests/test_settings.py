@@ -2,6 +2,10 @@
 
 from types import SimpleNamespace
 
+from renpy_language_server.numeric_args import (
+    ATL_WARPERS,
+    DEFAULT_NUMERIC_FAMILIES,
+)
 from renpy_language_server.settings import (
     DEFAULT_DIAGNOSTIC_RULES,
     Settings,
@@ -17,6 +21,11 @@ def test_defaults_match_current_behaviour() -> None:
     assert settings.align_equals is True
     assert settings.normalize_spacing is True
     assert settings.normalize_quotes is True
+    assert settings.normalize_numeric_args is True
+    assert settings.numeric_style == "bare"
+    assert settings.numeric_floats is True
+    assert settings.numeric_families == DEFAULT_NUMERIC_FAMILIES
+    assert settings.numeric_warpers == ATL_WARPERS
     assert settings.format_python is False
     assert settings.diagnostics is True
     assert settings.code_actions is True
@@ -90,6 +99,57 @@ def test_code_actions_can_be_disabled() -> None:
 def test_quote_normalization_can_be_disabled() -> None:
     merged = merge_settings(Settings(), {"normalize_quotes": False})
     assert merged.normalize_quotes is False
+
+
+def test_numeric_normalization_can_be_configured() -> None:
+    merged = merge_settings(
+        Settings(),
+        {
+            "normalize_numeric_args": False,
+            "numeric_style": "parenthesized",
+            "numeric_floats": False,
+        },
+    )
+    assert merged.normalize_numeric_args is False
+    assert merged.numeric_style == "parens"
+    assert merged.numeric_floats is False
+
+
+def test_numeric_families_accept_lists_and_strings() -> None:
+    merged = merge_settings(
+        Settings(), {"numeric_families": ["pause", "atl", "unknown"]}
+    )
+    assert merged.numeric_families == frozenset({"pause", "atl"})
+
+    merged = merge_settings(Settings(), {"numeric_families": "pause,timer"})
+    assert merged.numeric_families == frozenset({"pause", "timer"})
+
+    merged = merge_settings(Settings(), {"numeric_families": []})
+    assert merged.numeric_families == frozenset()
+
+
+def test_numeric_warpers_add_to_the_builtins() -> None:
+    merged = merge_settings(Settings(), {"numeric_warpers": ["my_warper"]})
+    assert "my_warper" in merged.numeric_warpers
+    assert merged.numeric_warpers >= ATL_WARPERS
+
+    merged = merge_settings(Settings(), {"numeric_warpers": ["bad name", "ok"]})
+    assert "ok" in merged.numeric_warpers
+    assert "bad name" not in merged.numeric_warpers
+
+
+def test_invalid_numeric_settings_are_ignored() -> None:
+    current = Settings()
+    merged = merge_settings(
+        current,
+        {
+            "numeric_style": "fancy",
+            "numeric_families": 3,
+            "numeric_warpers": 3,
+            "normalize_numeric_args": "yes",
+        },
+    )
+    assert merged == current
 
 
 def test_hover_can_be_disabled() -> None:
