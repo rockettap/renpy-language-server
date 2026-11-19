@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.2.2 - 2026-11-19
 
 - Completion now scans every audio file below `game/`, so nested soundtracks
