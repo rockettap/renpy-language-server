@@ -49,10 +49,7 @@ def signature_at(
         documentation = f"{symbol.kind} `{symbol.name}`"
 
     active = _active_parameter(source, open_index + 1, offset)
-    if parameters:
-        active = min(active, len(parameters) - 1)
-    else:
-        active = None
+    active = min(active, len(parameters) - 1) if parameters else None
 
     signature = types.SignatureInformation(
         label=label,

@@ -6,7 +6,7 @@ The data is generated from the MIT-licensed ``renpy.json`` shipped by
 
 import json
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache
 from importlib.resources import files
 
 # Images defined by Ren'Py's own common files, usable without a project
@@ -54,7 +54,7 @@ class Builtin:
         return f"{self.name}{self.args}" if self.args else self.name
 
 
-@lru_cache(maxsize=1)
+@cache
 def builtins() -> dict[str, Builtin]:
     """Load and cache the bundled API table."""
     path = files("renpy_language_server.data").joinpath("renpy_api.json")

@@ -9,7 +9,7 @@ avoids scattering vocabulary across the completion engine.
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache
 from importlib.resources import files
 from typing import Any, cast
 
@@ -46,7 +46,7 @@ class CompletionData:
         return tuple(result)
 
 
-@lru_cache(maxsize=1)
+@cache
 def data() -> CompletionData:
     """Load and cache the bundled completion data."""
     path = files("renpy_language_server.data").joinpath("completion.json")

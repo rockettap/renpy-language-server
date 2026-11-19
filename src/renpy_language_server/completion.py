@@ -9,7 +9,7 @@ are supplied by the server and expanded in Phase 4.
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from functools import lru_cache
+from functools import cache
 
 from . import builtins as api
 from .analysis import Block, analyze
@@ -230,7 +230,7 @@ _DISPLAYABLE_PROPERTIES = frozenset(
 )
 
 
-@lru_cache(maxsize=1)
+@cache
 def _builtin_items() -> tuple[Completion, ...]:
     result: list[Completion] = []
     for builtin in api.iter_builtins():
@@ -308,7 +308,7 @@ def _strip_unmatched_backticks(text: str) -> str:
     return "".join(pieces)
 
 
-@lru_cache(maxsize=1)
+@cache
 def _python_items() -> tuple[Completion, ...]:
     result = [
         Completion(name, "keyword", "Python keyword") for name in _PYTHON_KEYWORDS

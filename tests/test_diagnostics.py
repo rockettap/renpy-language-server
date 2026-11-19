@@ -43,9 +43,7 @@ def codes(source: str, index: WorkspaceIndex | None = None) -> list[str]:
 
 
 def all_rules() -> Settings:
-    return Settings(
-        diagnostic_rules={rule: "warning" for rule in DEFAULT_DIAGNOSTIC_RULES}
-    )
+    return Settings(diagnostic_rules=dict.fromkeys(DEFAULT_DIAGNOSTIC_RULES, "warning"))
 
 
 def rule_codes(

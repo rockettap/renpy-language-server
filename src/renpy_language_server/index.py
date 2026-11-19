@@ -834,7 +834,9 @@ def _at_targets(stripped: str, raw: str, line: int, uri: str) -> list[Reference]
 
     result: list[Reference] = []
     for match, word in zip(
-        matches[words.index("at") + 1 :], words[words.index("at") + 1 :]
+        matches[words.index("at") + 1 :],
+        words[words.index("at") + 1 :],
+        strict=True,
     ):
         if word in _CLAUSE_WORDS:
             break
