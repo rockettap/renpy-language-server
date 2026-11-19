@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.3 - 2026-11-19
+
+- Report the language-server version with a single `v` prefix. The server now
+  sends `0.2.3`, so clients such as Zed display `v0.2.3` instead of `vv0.2.3`.
+
 ## 0.2.2 - 2026-11-19
 
 - Completion now scans every audio file below `game/`, so nested soundtracks
