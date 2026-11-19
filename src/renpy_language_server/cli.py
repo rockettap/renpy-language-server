@@ -14,6 +14,13 @@ import typer
 
 from . import __version__
 from .formatter import FormatOptions, format_source
+from .numeric_args import (
+    ATL_WARPERS,
+    DEFAULT_NUMERIC_FAMILIES,
+    coerce_families,
+    coerce_style,
+    coerce_warpers,
+)
 
 app = typer.Typer(
     name="renpy-language-server",
@@ -76,11 +83,34 @@ def _format_impl(
     spacing: bool,
     quotes: bool,
     python_format: bool,
+    numeric: bool,
+    numeric_style: str,
+    numeric_floats: bool,
+    numeric_families: list[str] | None,
+    numeric_warpers: list[str] | None,
 ) -> int:
+    style = coerce_style(numeric_style)
+    if style is None:
+        raise typer.BadParameter(
+            "expected 'bare' or 'parens'", param_hint="--numeric-style"
+        )
+    families = (
+        DEFAULT_NUMERIC_FAMILIES
+        if numeric_families is None
+        else coerce_families(numeric_families)
+    )
+    warpers = (
+        ATL_WARPERS if numeric_warpers is None else coerce_warpers(numeric_warpers)
+    )
     options = FormatOptions(
         indent=indent,
         normalize_spacing=spacing,
         normalize_quotes=quotes,
+        normalize_numeric_args=numeric,
+        numeric_style=style,
+        numeric_floats=numeric_floats,
+        numeric_families=families if families is not None else DEFAULT_NUMERIC_FAMILIES,
+        numeric_warpers=warpers if warpers is not None else ATL_WARPERS,
         format_python=python_format,
     )
 
@@ -163,6 +193,41 @@ def format(
             help="Rewrite single-quoted strings to double quotes.",
         ),
     ] = True,
+    numeric: Annotated[
+        bool,
+        typer.Option(
+            "--numeric/--no-numeric",
+            help="Normalize numeric duration arguments (pause 1 -> pause 1.0).",
+        ),
+    ] = True,
+    numeric_style: Annotated[
+        str,
+        typer.Option(
+            "--numeric-style",
+            help="Numeric argument style: 'bare' (pause 1.0) or 'parens'.",
+        ),
+    ] = "bare",
+    numeric_floats: Annotated[
+        bool,
+        typer.Option(
+            "--numeric-floats/--no-numeric-floats",
+            help="Add .0 to integer duration literals.",
+        ),
+    ] = True,
+    numeric_families: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--numeric-families",
+            help="Duration families to normalize (pause, atl, timer, audio, testcase).",
+        ),
+    ] = None,
+    numeric_warpers: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--numeric-warpers",
+            help="Extra ATL warper names to normalize, in addition to built-ins.",
+        ),
+    ] = None,
 ) -> None:
     """Format .rpy files."""
     rc = _format_impl(
@@ -173,6 +238,11 @@ def format(
         spacing=spacing,
         quotes=quotes,
         python_format=python_format,
+        numeric=numeric,
+        numeric_style=numeric_style,
+        numeric_floats=numeric_floats,
+        numeric_families=numeric_families,
+        numeric_warpers=numeric_warpers,
     )
     raise typer.Exit(rc)
 

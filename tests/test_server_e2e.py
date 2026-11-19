@@ -175,6 +175,90 @@ def test_format_over_stdio(tmp_path: Path) -> None:
     assert "Sending data" not in log
 
 
+def test_numeric_settings_are_applied_over_stdio(tmp_path: Path) -> None:
+    source = "label start:\n    pause 1\n"
+    expected = "label start:\n    pause (1.0)\n"
+    document = tmp_path / "script.rpy"
+    document.write_text(source, encoding="utf-8")
+    uri = document.as_uri()
+    log_path = tmp_path / "server.log"
+    log_file = log_path.open("wb")
+    env = os.environ.copy()
+    env.pop("RENPY_LANGUAGE_SERVER_DEBUG", None)
+
+    process = subprocess.Popen(
+        [sys.executable, "-m", "renpy_language_server"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=log_file,
+        env=env,
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    stdin = process.stdin
+    stdout = process.stdout
+
+    try:
+        _send(
+            stdin,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "processId": os.getpid(),
+                    "rootUri": tmp_path.as_uri(),
+                    "capabilities": {},
+                    "workspaceFolders": [{"uri": tmp_path.as_uri(), "name": "tmp"}],
+                    "initializationOptions": {
+                        "renpyLanguageServer": {"numeric_style": "parens"}
+                    },
+                },
+            },
+        )
+        assert "result" in _response(stdout, 1)
+        _send(stdin, {"jsonrpc": "2.0", "method": "initialized", "params": {}})
+        _send(
+            stdin,
+            {
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": {
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "renpy",
+                        "version": 1,
+                        "text": source,
+                    }
+                },
+            },
+        )
+        _send(
+            stdin,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "textDocument/formatting",
+                "params": {
+                    "textDocument": {"uri": uri},
+                    "options": {"tabSize": 4, "insertSpaces": True},
+                },
+            },
+        )
+        edits = _edits_from_response(_response(stdout, 2))
+        assert apply_edits(source, edits) == expected
+
+        _send(stdin, {"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": None})
+        _response(stdout, 3)
+        _send(stdin, {"jsonrpc": "2.0", "method": "exit", "params": None})
+        process.wait(timeout=5)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+        log_file.close()
+
+
 def test_folding_over_stdio(tmp_path: Path) -> None:
     source = (
         "label start:\n"
@@ -718,7 +802,7 @@ def test_local_labels_over_stdio(tmp_path: Path) -> None:
 def test_hover_over_stdio(tmp_path: Path) -> None:
     (tmp_path / "game" / "images").mkdir(parents=True)
     (tmp_path / "game" / "images" / "bg room.png").write_bytes(b"")
-    (tmp_path / "other.rpy").write_text(
+    (tmp_path / "game" / "other.rpy").write_text(
         "# Other label.\nlabel other:\n    return\n", encoding="utf-8"
     )
     source = "label start:\n    jump other\n    show bg room\n    renpy.pause(1.0)\n"

@@ -75,6 +75,12 @@ def test_show_scene_and_hide_offer_images() -> None:
             item.label for item in result.items
         }
 
+    assert {"black", "text", "vtext"} <= set(labels("    show "))
+    assert labels("    show bl") == ["black"]
+    assert "screen" not in labels("    scene ")
+    assert "screen" in labels("    show ")
+    assert "screen" in labels("    hide ")
+
 
 def test_show_target_replaces_the_whole_typed_target() -> None:
     result = complete(SOURCE, "    show eileen h")
@@ -82,9 +88,54 @@ def test_show_target_replaces_the_whole_typed_target() -> None:
     assert [item.label for item in result.items] == ["eileen happy"]
 
 
+def test_show_target_offers_specifier_clauses() -> None:
+    result = complete(SOURCE, "    show eileen happy ")
+    assert result.replace_start == len("    show eileen happy ")
+    assert {"at", "as", "behind", "onlayer", "with", "zorder"} == {
+        item.label for item in result.items
+    }
+
+    partial = complete(SOURCE, "    show eileen happy w")
+    assert [item.label for item in partial.items] == ["with"]
+    assert partial.replace_start == len("    show eileen happy ")
+
+    # A target that is still being typed keeps offering images.
+    assert [item.label for item in complete(SOURCE, "    show eileen ").items] == [
+        "eileen happy",
+        "eileen sad",
+    ]
+
+    # ``hide`` only takes the clauses that affect hiding.
+    hide = complete(SOURCE, "    hide eileen ")
+    assert {item.label for item in hide.items} == {"onlayer", "with"}
+
+
+def test_specifier_clauses_offer_values() -> None:
+    transition = complete(SOURCE, "    show eileen happy with ")
+    assert {"None", "Dissolve"} <= {item.label for item in transition.items}
+    dissolve = complete(SOURCE, "    show eileen happy with dis")
+    assert dissolve.items[0].label.startswith("Dissolve")
+    layers = complete(SOURCE, "    show eileen happy onlayer ")
+    assert {"master", "transient", "screens", "overlay"} == {
+        item.label for item in layers.items
+    }
+    behind = complete(SOURCE, "    show eileen happy behind ")
+    assert {"bg", "eileen", "black"} <= {item.label for item in behind.items}
+
+
 def test_jump_and_call_offer_labels() -> None:
     for prefix in ("    jump ", "    call "):
         assert {"start", "chapter_one"} <= set(labels(prefix))
+
+
+def test_screen_label_elements_do_not_appear_as_labels() -> None:
+    source = (
+        'screen preferences():\n    label _("Display")\n\nlabel start:\n    return\n'
+    )
+    result = complete(source, "    jump ", None, None, 4)
+    labels = [item.label for item in result.items]
+    assert "start" in labels
+    assert "_" not in labels
 
 
 def test_call_screen_offers_screens() -> None:
@@ -97,6 +148,30 @@ def test_call_screen_is_suggested_while_typing() -> None:
     assert "screen" in labels("    call scr")
 
 
+def test_screen_statements_offer_specifier_clauses() -> None:
+    show = complete(SOURCE, "    show screen main_menu ")
+    assert {"nopredict", "with", "onlayer", "zorder", "as"} == {
+        item.label for item in show.items
+    }
+
+    call = complete(SOURCE, "    call screen main_menu ")
+    assert "zorder" in {item.label for item in call.items}
+
+    hide = complete(SOURCE, "    hide screen main_menu ")
+    assert {"with", "onlayer"} == {item.label for item in hide.items}
+
+    partial = complete(SOURCE, "    show screen main_menu z")
+    assert [item.label for item in partial.items] == ["zorder"]
+
+    layers = complete(SOURCE, "    show screen main_menu onlayer ")
+    assert {"master", "transient", "screens", "overlay"} == {
+        item.label for item in layers.items
+    }
+    assert {"None", "Dissolve"} <= {
+        item.label for item in complete(SOURCE, "    show screen main_menu with ").items
+    }
+
+
 def test_character_is_suggested_at_statement_start() -> None:
     assert "e" in labels("    e")
     assert complete(SOURCE, "    e").replace_start == 4
@@ -106,6 +181,22 @@ def test_no_completion_inside_dialogue_or_comment() -> None:
     assert complete(SOURCE, '    e "Hello').items == []
     assert complete(SOURCE, "    # show").items == []
     assert complete(SOURCE, '    show "bg').items == []
+
+
+def test_dialogue_image_attributes_stop_at_the_text() -> None:
+    source = (
+        'define e = Character("Eileen", image="eileen")\n'
+        'image eileen happy = "happy.png"\n'
+        'image eileen sad = "sad.png"\n'
+    )
+    assert [item.label for item in complete(source, "    e ").items] == [
+        "happy",
+        "sad",
+    ]
+    assert [item.label for item in complete(source, "    e happy ").items] == ["sad"]
+    assert complete(source, '    e "Hello"').items == []
+    assert complete(source, '    e "Hello" ').items == []
+    assert complete(source, '    e happy "Hello" ').items == []
 
 
 def test_other_statements_do_not_offer_completion() -> None:
@@ -256,11 +347,61 @@ def test_jump_and_call_offer_expression_and_labels() -> None:
 def test_use_show_screen_and_hide_screen_offer_screens() -> None:
     for prefix in ("    use ", "    show screen ", "    hide screen "):
         assert {"main_menu", "preferences"} <= set(labels(prefix))
+    assert "say" in labels("    use ")
 
 
-def test_show_expression_and_text_do_not_offer_images() -> None:
+def test_show_expression_offers_clauses_but_not_images() -> None:
     assert complete(SOURCE, "    show expression ").items == []
-    assert complete(SOURCE, "    show text ").items == []
+    clauses = complete(SOURCE, "    show expression picture ")
+    assert {"at", "as", "behind", "onlayer", "with", "zorder"} == {
+        item.label for item in clauses.items
+    }
+    assert [
+        item.label for item in complete(SOURCE, "    show expression picture z").items
+    ] == ["zorder"]
+    assert "left" in {
+        item.label for item in complete(SOURCE, "    show expression picture at ").items
+    }
+
+
+def test_show_text_offers_clauses() -> None:
+    assert {"at", "as", "behind", "onlayer", "with", "zorder"} == {
+        item.label for item in complete(SOURCE, "    show text ").items
+    }
+    assert {"at", "with", "onlayer"} <= {
+        item.label for item in complete(SOURCE, '    show text "hello" ').items
+    }
+    transforms = complete(SOURCE, '    show text "hello" at ')
+    assert {"left", "right", "center", "truecenter"} <= {
+        item.label for item in transforms.items
+    }
+
+
+def test_show_layer_and_camera_offer_layers_and_transforms() -> None:
+    assert {"master", "transient", "screens", "overlay"} == {
+        item.label for item in complete(SOURCE, "    show layer ").items
+    }
+    assert [item.label for item in complete(SOURCE, "    show layer ma").items] == [
+        "master"
+    ]
+    assert [
+        item.label for item in complete(SOURCE, "    show layer master ").items
+    ] == ["at"]
+    assert "left" in {
+        item.label for item in complete(SOURCE, "    show layer master at ").items
+    }
+
+    camera = complete(SOURCE, "    camera ")
+    assert {"master", "transient", "screens", "overlay", "at"} <= {
+        item.label for item in camera.items
+    }
+    assert [item.label for item in complete(SOURCE, "    camera master ").items] == [
+        "at"
+    ]
+    assert "left" in {
+        item.label for item in complete(SOURCE, "    camera master at ").items
+    }
+    assert "camera" in labels("    cam")
 
 
 def test_at_offers_user_and_builtin_transforms() -> None:
@@ -295,6 +436,13 @@ def test_with_offers_builtin_and_user_transitions() -> None:
     assert {"Dissolve", "Fade", "None"} <= {item.label for item in builtin.items}
 
 
+def test_window_and_pause_offer_their_values() -> None:
+    assert {"auto", "hide", "show"} == set(labels("    window "))
+    assert {"0.5", "1.0", "1.5", "2.0"} == set(labels("    pause "))
+    assert labels("    window au") == ["auto"]
+    assert labels("    pause 1.5") == ["1.5"]
+
+
 def test_audio_channels_assets_and_options() -> None:
     source = 'define audio.theme = "audio/theme.ogg"\n'
     channels = complete(source, "    play ", None, None, 1)
@@ -306,10 +454,31 @@ def test_audio_channels_assets_and_options() -> None:
     labels = {item.label for item in assets.items}
     assert "audio.theme" in labels
     assert "audio/chapter.ogg" in labels
-    assert {"loop", "noloop", "fadein", "volume"} <= labels
+    # Options only make sense after the file argument.
+    assert not {"loop", "noloop", "fadein", "volume"} & labels
+
+    typed = complete(source, '    play music "audio/ch', extended_workspace(), None, 1)
+    assert [item.label for item in typed.items] == ["audio/chapter.ogg"]
+    assert typed.items[0].insert_text == "audio/chapter.ogg"
+
+    options = complete(
+        source,
+        '    play music "audio/chapter.ogg" ',
+        extended_workspace(),
+        None,
+        1,
+    )
+    option_labels = {item.label for item in options.items}
+    assert {"loop", "noloop", "fadein", "volume"} <= option_labels
+    assert not {"audio.theme", "audio/chapter.ogg"} & option_labels
 
     stop = complete(source, "    stop music ", None, None, 1)
     assert "fadeout" in {item.label for item in stop.items}
+    assert "fadein" not in {item.label for item in stop.items}
+
+    fadeout = complete(source, "    stop music fadeout ", None, None, 1)
+    assert {"0.5", "1.0", "1.5", "2.0"} == {item.label for item in fadeout.items}
+    assert complete(source, "    stop music fadein ", None, None, 1).items == []
 
 
 def test_audio_namespace_completes_defined_variables() -> None:
@@ -317,6 +486,31 @@ def test_audio_namespace_completes_defined_variables() -> None:
     result = complete(source, "    play music audio.th", None, None, 1)
     assert [item.label for item in result.items] == ["theme"]
     assert result.items[0].insert_text == "audio.theme"
+
+
+def test_voice_offers_audio_files_and_sustain() -> None:
+    source = 'define audio.theme = "audio/theme.ogg"\n'
+    result = complete(source, "    voice ", extended_workspace(), None, 1)
+    labels = {item.label for item in result.items}
+    assert {"audio.theme", "audio/chapter.ogg", "sustain"} <= labels
+
+    typed = complete(source, '    voice "audio/ch', extended_workspace(), None, 1)
+    assert [item.label for item in typed.items] == ["audio/chapter.ogg"]
+    assert typed.items[0].insert_text == "audio/chapter.ogg"
+
+    assert (
+        complete(
+            source,
+            '    voice "audio/chapter.ogg" ',
+            extended_workspace(),
+            None,
+            1,
+        ).items
+        == []
+    )
+    assert [item.label for item in complete(source, "    voice sus").items] == [
+        "sustain"
+    ]
 
 
 def test_screen_body_elements_properties_values_and_actions() -> None:
@@ -378,6 +572,13 @@ def test_python_expression_contexts() -> None:
     assert "Character" in labels("    $ Cha")
     assert "True" in labels("    if ")
     assert "Define" not in labels("    if ")
+
+
+def test_for_loop_offers_python_expressions() -> None:
+    assert "range" in labels("    for i in ra")
+    marked = "label start:\n    for i in |\n"
+    workspace = {"variable": [Completion("x", "variable", "define")]}
+    assert "x" in {item.label for item in complete_at(marked, workspace).items}
 
 
 def test_python_block_offers_keywords_and_builtins() -> None:

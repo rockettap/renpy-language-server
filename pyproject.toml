@@ -1,6 +1,6 @@
 [project]
 name = "renpy-language-server"
-version = "0.2.1"
+version = "0.2.2"
 description = "Language server and formatter for Ren'Py scripts"
 readme = "README.md"
 authors = [
@@ -53,7 +53,18 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM", "C4", "TID", "RUF100"]
+
+# See docs/annotation-policy.md for the eager-annotation rules.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"__future__.annotations".msg = "Do not defer annotations; quote forward references instead."
+
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
 typeCheckingMode = "strict"
+pythonVersion = "3.10"

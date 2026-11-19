@@ -96,6 +96,21 @@ def test_scan_workspace_ignores_unreadable_and_wrong_files(tmp_path: Path) -> No
     assert documents == []
 
 
+def test_scan_workspace_only_reads_the_game_directory(tmp_path: Path) -> None:
+    game = tmp_path / "game"
+    game.mkdir()
+    (game / "script.rpy").write_text("label start:\n    return\n", encoding="utf-8")
+    originals = tmp_path / "originals"
+    originals.mkdir()
+    (originals / "script.rpy").write_text(
+        "label start:\n    return\n", encoding="utf-8"
+    )
+
+    documents = scan_workspace([tmp_path])
+
+    assert [doc.uri for doc in documents] == [(game / "script.rpy").as_uri()]
+
+
 def test_non_ascii_text_before_a_symbol_uses_utf16_units() -> None:
     # The comment is irrelevant to the symbol, but the line is still measured
     # through the UTF-16 helper below.
@@ -159,6 +174,23 @@ def test_global_label_at_and_resolve_label_name() -> None:
     assert resolve_label_name(source, 4, ".intro") == "other.intro"
     assert resolve_label_name(source, 1, "plain") == "plain"
     assert resolve_label_name("jump .orphan\n", 0, ".orphan") is None
+
+
+def test_screen_label_element_does_not_change_label_context() -> None:
+    source = (
+        "label chapter:\n"
+        "    jump .intro\n"
+        "\n"
+        "screen stats():\n"
+        '    label _("Stats")\n'
+        "\n"
+        "label chapter.intro:\n"
+        "    return\n"
+    )
+
+    assert global_label_at(source, 1) == "chapter"
+    assert global_label_at(source, 4) == "chapter"
+    assert global_label_at(source, 6) == "chapter"
 
 
 def test_style_and_layeredimage_are_indexed() -> None:
@@ -230,6 +262,22 @@ def test_screen_local_defaults_are_not_global_symbols() -> None:
 
     assert [(item.kind, item.name) for item in document.symbols] == [
         ("screen", "stats")
+    ]
+
+
+def test_screen_label_elements_are_not_labels() -> None:
+    source = (
+        "screen preferences():\n"
+        '    label _("Display")\n'
+        '    textbutton _("Window") action Preference("display", "window")\n'
+        "label start:\n"
+        "    return\n"
+    )
+    document = parse_document("file:///script.rpy", source)
+
+    assert [(item.kind, item.name) for item in document.symbols] == [
+        ("screen", "preferences"),
+        ("label", "start"),
     ]
 
 

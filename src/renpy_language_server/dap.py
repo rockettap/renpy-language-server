@@ -10,8 +10,7 @@ not implemented in this version. Requests for them are answered with empty
 results or a clear error instead of pretending to debug.
 """
 
-from __future__ import annotations
-
+import contextlib
 import json
 import os
 import re
@@ -585,10 +584,8 @@ class Session:
         except ProcessLookupError:
             return
         except OSError:
-            try:
+            with contextlib.suppress(OSError):
                 process.send_signal(sig)
-            except OSError:
-                pass
 
     def _terminate(self, *, force: bool = False, escalate: bool = False) -> None:
         process = self._running()

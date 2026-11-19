@@ -43,9 +43,7 @@ def codes(source: str, index: WorkspaceIndex | None = None) -> list[str]:
 
 
 def all_rules() -> Settings:
-    return Settings(
-        diagnostic_rules={rule: "warning" for rule in DEFAULT_DIAGNOSTIC_RULES}
-    )
+    return Settings(diagnostic_rules=dict.fromkeys(DEFAULT_DIAGNOSTIC_RULES, "warning"))
 
 
 def rule_codes(
@@ -309,6 +307,7 @@ def test_unknown_image_rule_accepts_declarations_and_assets(tmp_path: Path) -> N
 
 def test_unknown_image_rule_ignores_expressions() -> None:
     assert rule_codes("label start:\n    show expression picture\n") == []
+    assert rule_codes("label start:\n    scene black\n") == []
 
 
 def test_undefined_screen_rule_accepts_declarations_and_built_ins() -> None:

@@ -5,7 +5,39 @@ on:
     tags: ["v*"]
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Check lockfile
+        run: uv lock --check
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run pyright
+
+      - name: Test
+        run: uv run pytest
+
   publish:
+    needs: verify
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -32,10 +64,27 @@ jobs:
       - name: Build
         run: uv build
 
+      - name: Extract release notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v version="$version" '
+            index($0, "## " version " ") == 1 { capture = 1; next }
+            /^## / { capture = 0 }
+            capture
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q . release-notes.md; then
+            echo "No changelog section found for $version" >&2
+            exit 1
+          fi
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
-          files: dist/*
+          body_path: release-notes.md
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.publish.attestation

@@ -709,6 +709,11 @@ def _format_options(options: types.FormattingOptions) -> FormatOptions:
         align_equals=_settings.align_equals,
         normalize_spacing=_settings.normalize_spacing,
         normalize_quotes=_settings.normalize_quotes,
+        normalize_numeric_args=_settings.normalize_numeric_args,
+        numeric_style=_settings.numeric_style,
+        numeric_floats=_settings.numeric_floats,
+        numeric_families=_settings.numeric_families,
+        numeric_warpers=_settings.numeric_warpers,
         format_python=_settings.format_python,
     )
 

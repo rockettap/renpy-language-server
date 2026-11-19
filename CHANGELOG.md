@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.2 - 2026-11-19
+
+- Completion now scans every audio file below `game/`, so nested soundtracks
+  complete as game-relative paths. Voice files and sustain values are offered,
+  and `stop` completes fadeout, window and pause values.
+- After a complete `show`, `scene` or `hide` target, completion offers the
+  specifier clauses and their values. Image, screen, layer and Python clauses
+  are covered, and `scene` no longer suggests the invalid screen clause.
+- Automatic image names now follow Ren'Py's matching rules.
+- The workspace index only includes the Ren'Py `game/` directory, avoiding
+  unrelated Python and Ren'Py files.
+- Numeric duration arguments are normalized by default. Pure integer literals
+  in `pause`, ATL warper/time/delay and bare number statements, screen `timer`,
+  audio `fadein`/`fadeout` and testcase `pause`/`timeout` gain `.0`
+  (`pause 1` becomes `pause 1.0`). The optional parenthesised style emits
+  `pause (1.0)`. Controlled by `normalize_numeric_args`, `numeric_style`,
+  `numeric_floats`, `numeric_families` and `numeric_warpers`, with matching CLI
+  options. Expressions and non-duration numbers are never rewritten.
+- Removed unnecessary `from __future__ import annotations` imports.
+  Annotations are evaluated eagerly on Python 3.10–3.13, so forward references
+  in `analysis.py` remain quoted. Ruff now enforces the ban, and Pyright checks
+  against the Python 3.10 minimum. No runtime behavior change.
+- Added a GitHub Actions tutorial for running the formatter in check mode and
+  documented the project's eager-annotation policy.
+
 ## 0.2.1 - 2026-11-05
 
 - Metadata and documentation refresh. The package author is now listed as

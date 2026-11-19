@@ -72,12 +72,15 @@ Requires Python 3.10 or newer.
   terminates the game. Breakpoints, stepping, variables and attach are not
   implemented yet
 - `renpy-language-server format` command for scripts and CI (`--check`, `--diff`)
-- Safe formatting by default: whitespace and quote delimiters only, never
-  string values or program behaviour
+- Safe formatting by default: whitespace, quote delimiters and numeric duration
+  literals only; string values and non-duration numbers are never touched
 - Inline spacing for Python-ish statements (`$ points=1` becomes
   `$ points = 1`) and inside `python:` blocks
 - Single-quoted strings become double-quoted unless the value contains an
   unescaped `"` (`--no-quotes` / `normalize_quotes: false` disables it)
+- Duration arguments in `pause`, ATL, screen `timer`, audio fades and testcases
+  get one spelling (`pause 1` becomes `pause 1.0`, or `pause (1.0)` with the
+  parenthesised style)
 - Optional Ruff formatting for `python:` block bodies
 
 ## Install
@@ -97,10 +100,15 @@ renpy-language-server format game/             # format every .rpy under game/ i
 renpy-language-server format --check game/     # exit 1 if anything would change (CI)
 renpy-language-server format --diff script.rpy
 renpy-language-server format --python game/    # also format python: blocks with Ruff
+renpy-language-server format --numeric-style parens game/
+renpy-language-server format --no-numeric game/  # keep numeric durations as written
 cat script.rpy | renpy-language-server format -
 renpy-language-server                          # start the language server on stdio
 renpy-language-server dap                      # start the launch-only debug adapter on stdio
 ```
+
+To enforce formatting on every pull request, see
+[Format-check Ren'Py scripts in GitHub Actions](docs/github-actions-format-check.md).
 
 ### Debug adapter
 
@@ -171,6 +179,11 @@ The server accepts settings from the language client's `initializationOptions`
     "align_equals": true,
     "normalize_spacing": true,
     "normalize_quotes": true,
+    "normalize_numeric_args": true,
+    "numeric_style": "bare",
+    "numeric_floats": true,
+    "numeric_families": ["pause", "atl", "timer", "audio", "testcase"],
+    "numeric_warpers": [],
     "format_python": false,
     "diagnostics": true,
     "code_actions": true,
@@ -196,30 +209,35 @@ The server accepts settings from the language client's `initializationOptions`
 }
 ```
 
-| Setting                     | Default   | Meaning                                                       |
-| --------------------------- | --------- | ------------------------------------------------------------- |
-| `indent`                    | `4`       | Fallback spaces per indentation level                         |
-| `max_blank_lines`           | `2`       | Maximum consecutive blank lines                               |
-| `align_equals`              | `true`    | Align consecutive assignment `=`                              |
-| `normalize_spacing`         | `true`    | Inline operator spacing                                       |
-| `normalize_quotes`          | `true`    | Rewrite single-quoted strings to double quotes                |
-| `format_python`             | `false`   | Format `python:` bodies with Ruff                             |
-| `diagnostics`               | `true`    | Enable all diagnostics                                        |
-| `code_actions`              | `true`    | Enable diagnostic quick fixes                                 |
-| `unknown_label_diagnostics` | `true`    | Legacy switch for the unknown-label rule                      |
-| `diagnostics_mode`          | `"open"`  | Check open files (`open`) or the workspace                    |
-| `diagnostic_rules`          | see below | Per-rule `error`, `warning` or `off`                          |
-| `completion`                | `true`    | Enable completion                                             |
-| `automatic_assets`          | `true`    | Offer images/audio found on disk in completion                |
-| `semantic_tokens`           | `false`   | Enable semantic tokens (opt-in)                               |
-| `workspace_symbols`         | `true`    | Enable `workspace/symbol` search                              |
-| `hover`                     | `true`    | Enable hover information                                      |
-| `rename`                    | `true`    | Enable prepare-rename and rename                              |
-| `references`                | `true`    | Enable find-references                                        |
-| `highlight`                 | `true`    | Enable occurrence highlights                                  |
-| `signature`                 | `true`    | Enable signature help                                         |
-| `extended_index`            | `true`    | Index Python classes, stores and related declaration families |
-| `member_references`         | `true`    | Index `self.x` / `Class.x` / `persistent.x` / `store.x`       |
+| Setting                     | Default   | Meaning                                                         |
+| --------------------------- | --------- | --------------------------------------------------------------- |
+| `indent`                    | `4`       | Fallback spaces per indentation level                           |
+| `max_blank_lines`           | `2`       | Maximum consecutive blank lines                                 |
+| `align_equals`              | `true`    | Align consecutive assignment `=`                                |
+| `normalize_spacing`         | `true`    | Inline operator spacing                                         |
+| `normalize_quotes`          | `true`    | Rewrite single-quoted strings to double quotes                  |
+| `normalize_numeric_args`    | `true`    | Normalize numeric duration arguments                            |
+| `numeric_style`             | `"bare"`  | `"bare"` (`pause 1.0`) or `"parens"` (`pause (1.0)`)            |
+| `numeric_floats`            | `true`    | Add `.0` to integer duration literals                           |
+| `numeric_families`          | all       | Duration families: `pause`, `atl`, `timer`, `audio`, `testcase` |
+| `numeric_warpers`           | `[]`      | Extra ATL warper names, in addition to the built-ins            |
+| `format_python`             | `false`   | Format `python:` bodies with Ruff                               |
+| `diagnostics`               | `true`    | Enable all diagnostics                                          |
+| `code_actions`              | `true`    | Enable diagnostic quick fixes                                   |
+| `unknown_label_diagnostics` | `true`    | Legacy switch for the unknown-label rule                        |
+| `diagnostics_mode`          | `"open"`  | Check open files (`open`) or the workspace                      |
+| `diagnostic_rules`          | see below | Per-rule `error`, `warning` or `off`                            |
+| `completion`                | `true`    | Enable completion                                               |
+| `automatic_assets`          | `true`    | Offer images/audio found on disk in completion                  |
+| `semantic_tokens`           | `false`   | Enable semantic tokens (opt-in)                                 |
+| `workspace_symbols`         | `true`    | Enable `workspace/symbol` search                                |
+| `hover`                     | `true`    | Enable hover information                                        |
+| `rename`                    | `true`    | Enable prepare-rename and rename                                |
+| `references`                | `true`    | Enable find-references                                          |
+| `highlight`                 | `true`    | Enable occurrence highlights                                    |
+| `signature`                 | `true`    | Enable signature help                                           |
+| `extended_index`            | `true`    | Index Python classes, stores and related declaration families   |
+| `member_references`         | `true`    | Index `self.x` / `Class.x` / `persistent.x` / `store.x`         |
 
 `diagnostic_rules` accepts these keys: `indentation`, `tabs`, `filename`,
 `invalid_variable`, `reserved_names`, `comparison`, `stray_dollar`,
@@ -281,29 +299,34 @@ RENPY_LANGUAGE_SERVER_DEBUG=1 zed .
 
 ## Formatting rules
 
-| Rule                | Detail                                                                                                                   |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Indentation         | `tabSize` from the editor (default 4) spaces per level; tabs are expanded                                                |
-| Trailing whitespace | removed                                                                                                                  |
-| Assignments         | the `=` of consecutive assignment lines at the same indentation level is aligned into one column                         |
-| Inline spacing      | assignment and comparison operators in `$`, `define`, `default`, `if`, `elif`, `while`, `return` and `assert` lines      |
-| Keyword arguments   | spaces around `=` are removed (`color = "#fff"` becomes `color="#fff"`); real assignments keep them                      |
-| Quotes              | single-quoted strings become double-quoted unless the value contains an unescaped `"`; comments and values are untouched |
-| Python blocks       | assignment, comparison, arithmetic and bitwise operators inside `python:` blocks                                         |
-| Ruff (opt-in)       | `--python` formats `python:` bodies with Ruff, changing more than the default rules                                      |
-| Blank lines         | runs capped at 2; none at the start of the file                                                                          |
-| Block spacing       | a blank line before top-level `label`, `screen`, `init`, `transform`; a comment block directly above stays attached      |
-| End of file         | exactly one newline                                                                                                      |
-| Line endings        | LF or CRLF is kept as found                                                                                              |
-| Comments            | re-indented to the block they sit in; a comment right after `label x:` joins the body                                    |
+| Rule                | Detail                                                                                                                                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Indentation         | `tabSize` from the editor (default 4) spaces per level; tabs are expanded                                                                                                               |
+| Trailing whitespace | removed                                                                                                                                                                                 |
+| Assignments         | the `=` of consecutive assignment lines at the same indentation level is aligned into one column                                                                                        |
+| Inline spacing      | assignment and comparison operators in `$`, `define`, `default`, `if`, `elif`, `while`, `return` and `assert` lines                                                                     |
+| Keyword arguments   | spaces around `=` are removed (`color = "#fff"` becomes `color="#fff"`); real assignments keep them                                                                                     |
+| Quotes              | single-quoted strings become double-quoted unless the value contains an unescaped `"`; comments and values are untouched                                                                |
+| Numeric durations   | `pause 1` becomes `pause 1.0` (or `pause (1.0)`); applies to `pause`, ATL warpers/time/delay/number statements, screen `timer`, audio `fadein`/`fadeout` and testcase `pause`/`timeout` |
+| Python blocks       | assignment, comparison, arithmetic and bitwise operators inside `python:` blocks                                                                                                        |
+| Ruff (opt-in)       | `--python` formats `python:` bodies with Ruff, changing more than the default rules                                                                                                     |
+| Blank lines         | runs capped at 2; none at the start of the file                                                                                                                                         |
+| Block spacing       | a blank line before top-level `label`, `screen`, `init`, `transform`; a comment block directly above stays attached                                                                     |
+| End of file         | exactly one newline                                                                                                                                                                     |
+| Line endings        | LF or CRLF is kept as found                                                                                                                                                             |
+| Comments            | re-indented to the block they sit in; a comment right after `label x:` joins the body                                                                                                   |
 
 String contents are never edited: a single-quoted literal is only rewritten to
 double quotes when it contains no unescaped `"`, and quoted text in comments is
 skipped. Indentation and alignment rules never touch dialogue, screen
-properties or ATL lines; continuation lines of open brackets or backslashes are
-shifted together with their first line, keeping their relative alignment.
-Keyword and default-parameter `=` inside brackets is the only operator the
-spacing pass tightens; top-level assignment `=` still gets spaces.
+properties, ATL property values or ATL interpolation lines; continuation lines
+of open brackets or backslashes are shifted together with their first line,
+keeping their relative alignment. Numeric normalization only rewrites a
+duration when the whole argument is a pure number (optionally wrapped in
+parentheses); counts, coordinates, sizes, volumes, ATL property values and
+complex expressions are left alone. Keyword and default-parameter `=` inside
+brackets is the only operator the spacing pass tightens; top-level assignment
+`=` still gets spaces.
 
 ### Known assumptions and limits
 
@@ -319,6 +342,11 @@ spacing pass tightens; top-level assignment `=` still gets spaces.
   unescaped `"` and unterminated literals are left unchanged. Range formatting
   converts a multi-line literal only when both delimiters are in the selected
   lines, so it is never left half-converted.
+- Numeric duration normalization is on by default. Use `--no-numeric` or
+  `normalize_numeric_args: false` to disable it. Only pure numeric literals are
+  rewritten; `pause delay`, `1 + 2`, `max(1, 2)` and other expressions keep
+  their spelling. Custom ATL warpers can be listed in `numeric_warpers`; they
+  are added to the built-in warper names.
 - Diagnostics are intentionally conservative. Newer rules are opt-in, and each
   rule can be reduced to a warning or disabled independently.
 - Ruff formatting changes more than whitespace, so it is opt-in and failure-safe.
@@ -353,6 +381,7 @@ uv run pyright
 - `positions.py`: client-position conversion helpers
 - `folding.py`: explicit block fold ranges
 - `spacing.py`: inline operator spacing
+- `numeric_args.py`: numeric duration argument normalization
 - `python_format.py`: optional Ruff bridge
 - `formatter.py`: indentation, blank lines, comments
 - `edits.py`: old text to minimal LSP edits

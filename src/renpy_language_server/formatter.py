@@ -1,7 +1,8 @@
 """Formatter for Ren'Py scripts.
 
-Most rules are whitespace-only, so they cannot change what a script does; quote
-normalization changes delimiters only and leaves string values untouched:
+Most rules are whitespace-only. Quote normalization changes delimiters only, and
+numeric duration normalization changes an integer literal to the equivalent
+float; neither changes string values or expression results:
 
 * indentation is normalised to ``indent`` spaces per level (tabs expanded);
 * trailing whitespace is removed;
@@ -20,7 +21,10 @@ normalization changes delimiters only and leaves string values untouched:
 * single-quoted literals are rewritten to double quotes when the value cannot
   change (a literal containing an unescaped double quote is left alone);
 * lines inside ``python:`` blocks also get arithmetic and bitwise operator
-  spacing.
+  spacing;
+* pure numeric duration arguments in ``pause``, ATL, screen ``timer``, audio
+  fade and testcase statements get one spelling (``pause 1`` becomes
+  ``pause 1.0``).
 
 Never touched: the inside of strings, comments, slices and unary operators, and
 (apart from a uniform shift) continuation lines of brackets or backslashes.
@@ -29,7 +33,16 @@ Never touched: the inside of strings, comments, slices and unary operators, and
 import re
 from dataclasses import dataclass
 
-from .analysis import analyze
+from .analysis import Analysis, analyze
+from .numeric_args import (
+    ATL_WARPERS,
+    DEFAULT_NUMERIC_FAMILIES,
+    NumericContext,
+    NumericOptions,
+    NumericStyle,
+    build_numeric_context,
+    normalize_numeric_args,
+)
 from .python_format import format_python_blocks
 from .quotes import normalize_quotes
 from .scanner import LineInfo, State, scan_line
@@ -55,6 +68,11 @@ class FormatOptions:
     align_equals: bool = True
     normalize_spacing: bool = True
     normalize_quotes: bool = True
+    normalize_numeric_args: bool = True
+    numeric_style: NumericStyle = "bare"
+    numeric_floats: bool = True
+    numeric_families: frozenset[str] = DEFAULT_NUMERIC_FAMILIES
+    numeric_warpers: frozenset[str] = ATL_WARPERS
     format_python: bool = False
 
 
@@ -88,8 +106,22 @@ def format_source(source: str, options: FormatOptions | None = None) -> str:
     expect_indent = False  # previous code line opened a block (ends with ':')
     delta = 0  # new indent - old indent of the current logical line
     state = State()
+
+    needs_analysis = options.normalize_spacing or options.normalize_numeric_args
+    analysis = analyze(text, default_indent=options.indent) if needs_analysis else None
     python_lines: set[int] = (
-        _python_block_lines(text, options) if options.normalize_spacing else set()
+        _python_block_lines(analysis) if analysis is not None else set()
+    )
+    numeric_context: NumericContext | None = (
+        build_numeric_context(analysis)
+        if analysis is not None and options.normalize_numeric_args
+        else None
+    )
+    numeric_options = NumericOptions(
+        style=options.numeric_style,
+        floats=options.numeric_floats,
+        families=options.numeric_families,
+        warpers=options.numeric_warpers,
     )
 
     for index, raw in enumerate(lines):
@@ -148,6 +180,14 @@ def format_source(source: str, options: FormatOptions | None = None) -> str:
                     if index in python_lines
                     else normalize_statement_spacing(body)
                 )
+            if (
+                options.normalize_numeric_args
+                and numeric_context is not None
+                and index not in python_lines
+            ):
+                body = normalize_numeric_args(
+                    body, index, numeric_context, numeric_options
+                )
 
         new_indent = options.indent * depth
         delta = new_indent - orig
@@ -162,9 +202,8 @@ def format_source(source: str, options: FormatOptions | None = None) -> str:
     return result
 
 
-def _python_block_lines(source: str, options: FormatOptions) -> set[int]:
+def _python_block_lines(analysis: Analysis) -> set[int]:
     """Physical line numbers that are inside a ``python:`` block body."""
-    analysis = analyze(source, default_indent=options.indent)
     result: set[int] = set()
     for block in analysis.blocks:
         if _PYTHON_BLOCK.match(block.line.text):

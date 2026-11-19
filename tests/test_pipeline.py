@@ -173,8 +173,10 @@ label continuation:
         assert "\r\n" in applied
 
     def test_pipeline_preserves_semantics(self) -> None:
-        """Formatting should only change whitespace, never content."""
-        formatted = format_source(self.MESSY_SCRIPT)
+        """The whitespace-only rules should never change content."""
+        formatted = format_source(
+            self.MESSY_SCRIPT, FormatOptions(normalize_numeric_args=False)
+        )
         # Strip all whitespace from both and compare
         original_tokens = self.MESSY_SCRIPT.split()
         formatted_tokens = formatted.split()
@@ -321,3 +323,60 @@ class TestCLI:
         assert (tmp_path / "b.rpy").read_text(
             encoding="utf-8"
         ) == "label b:\n    return\n"
+
+    def test_main_format_numeric_is_on_by_default(self, tmp_path: Path) -> None:
+        from renpy_language_server.cli import main
+
+        f = tmp_path / "test.rpy"
+        f.write_text("label start:\n    pause 1\n", encoding="utf-8")
+        assert main(["format", str(f)]) == 0
+        assert f.read_text(encoding="utf-8") == "label start:\n    pause 1.0\n"
+
+    def test_main_format_no_numeric(self, tmp_path: Path) -> None:
+        from renpy_language_server.cli import main
+
+        f = tmp_path / "test.rpy"
+        source = "label start:\n    pause 1\n"
+        f.write_text(source, encoding="utf-8")
+        assert main(["format", "--no-numeric", str(f)]) == 0
+        assert f.read_text(encoding="utf-8") == source
+
+    def test_main_format_numeric_style(self, tmp_path: Path) -> None:
+        from renpy_language_server.cli import main
+
+        f = tmp_path / "test.rpy"
+        f.write_text("label start:\n    pause 1\n", encoding="utf-8")
+        assert main(["format", "--numeric-style", "parens", str(f)]) == 0
+        assert f.read_text(encoding="utf-8") == "label start:\n    pause (1.0)\n"
+
+    def test_main_format_no_numeric_floats(self, tmp_path: Path) -> None:
+        from renpy_language_server.cli import main
+
+        f = tmp_path / "test.rpy"
+        f.write_text("label start:\n    pause 1\n", encoding="utf-8")
+        assert main(["format", "--no-numeric-floats", str(f)]) == 0
+        assert f.read_text(encoding="utf-8") == "label start:\n    pause 1\n"
+
+    def test_main_format_numeric_families(self, tmp_path: Path) -> None:
+        from renpy_language_server.cli import main
+
+        f = tmp_path / "test.rpy"
+        f.write_text(
+            "label start:\n    pause 1\n\ntransform f:\n    linear 1\n",
+            encoding="utf-8",
+        )
+        assert main(["format", "--numeric-families", "atl", str(f)]) == 0
+        result = f.read_text(encoding="utf-8")
+        assert "    pause 1\n" in result
+        assert "    linear 1.0\n" in result
+
+    def test_main_format_numeric_warpers(self, tmp_path: Path) -> None:
+        from renpy_language_server.cli import main
+
+        f = tmp_path / "test.rpy"
+        f.write_text(
+            "transform f:\n    my_warper 1 xpos 100\n",
+            encoding="utf-8",
+        )
+        assert main(["format", "--numeric-warpers", "my_warper", str(f)]) == 0
+        assert "    my_warper 1.0 xpos 100\n" in f.read_text(encoding="utf-8")

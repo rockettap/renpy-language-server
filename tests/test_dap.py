@@ -1,7 +1,6 @@
 """Launch-only DAP adapter: configuration, SDK discovery and stdio sessions."""
 
-from __future__ import annotations
-
+import contextlib
 import json
 import queue
 import subprocess
@@ -98,7 +97,7 @@ class _Client:
 
     def close(self) -> None:
         if self.process.poll() is None:
-            try:
+            with contextlib.suppress(BrokenPipeError, OSError):
                 self.send(
                     {
                         "seq": 999,
@@ -107,8 +106,6 @@ class _Client:
                         "arguments": {},
                     }
                 )
-            except (BrokenPipeError, OSError):
-                pass
             try:
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:

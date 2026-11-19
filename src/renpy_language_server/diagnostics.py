@@ -16,6 +16,7 @@ from pygls.uris import to_fs_path
 
 from .analysis import Analysis, analyze
 from .assets import AssetIndex
+from .builtins import BUILTIN_IMAGES, BUILTIN_SCREENS
 from .definition import find_target
 from .index import (
     DocumentIndex,
@@ -204,28 +205,7 @@ _FILENAME_IGNORE_RE = re.compile(
     r"^\s*#\s*@Ren'?Py-Filename\s*:\s*(?:Ignore|Disable)", re.IGNORECASE
 )
 
-_BUILTIN_SCREENS = frozenset(
-    {
-        "say",
-        "choice",
-        "quick_menu",
-        "navigation",
-        "main_menu",
-        "game_menu",
-        "load",
-        "save",
-        "preferences",
-        "history",
-        "help",
-        "about",
-        "confirm",
-        "skip_indicator",
-        "notify",
-        "nvl",
-        "input",
-        "bubble",
-    }
-)
+_BUILTIN_SCREENS = BUILTIN_SCREENS
 
 
 def diagnostics_for_document(
@@ -705,6 +685,8 @@ def unknown_image_diagnostics(
         if reference.kind != "image":
             continue
         name = reference.name
+        if name in BUILTIN_IMAGES:
+            continue
         if index.find("image", name) or index.find("layeredimage", name):
             continue
         if assets is not None and assets.find_image(name):
