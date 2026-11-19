@@ -1,6 +1,6 @@
 [project]
 name = "renpy-language-server"
-version = "0.2.1"
+version = "0.2.2"
 description = "Language server and formatter for Ren'Py scripts"
 readme = "README.md"
 authors = [
