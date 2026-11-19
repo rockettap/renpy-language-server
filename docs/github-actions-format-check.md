@@ -85,7 +85,7 @@ jobs:
           enable-cache: true
 
       - name: Check Ren'Py formatting
-        run: uvx renpy-language-server@0.2.2 format --check game/
+        run: uvx renpy-language-server@0.2.3 format --check game/
 ```
 
 Commit and push the workflow. The next push or pull request runs it. If your
@@ -103,10 +103,10 @@ required status check.
 | `permissions: contents: read`     | Gives the job only the access it needs.                    |
 | `actions/checkout@v4`             | Puts the repository in the runner workspace.               |
 | `astral-sh/setup-uv@v5`           | Installs uv and caches downloaded packages.                |
-| `uvx renpy-language-server@0.2.2` | Runs a pinned CLI version without a separate install step. |
+| `uvx renpy-language-server@0.2.3` | Runs a pinned CLI version without a separate install step. |
 | `format --check game/`            | Verifies formatting and exits non-zero on changes.         |
 
-Pin the version (`@0.2.2`) so a new release cannot change the formatter output
+Pin the version (`@0.2.3`) so a new release cannot change the formatter output
 in an unrelated pull request. When adding the workflow, pin whatever the
 [latest version](https://pypi.org/project/renpy-language-server/) is at that
 time. Update the pin deliberately, together with a formatting commit.
@@ -150,7 +150,7 @@ exits 1 on changes. Replace the last step with:
 
 ```yaml
 - name: Check Ren'Py formatting
-  run: uvx renpy-language-server@0.2.2 format --diff game/
+  run: uvx renpy-language-server@0.2.3 format --diff game/
 ```
 
 The workflow log then shows what the formatter wants to change:
@@ -185,7 +185,7 @@ For example, a project with two-space indentation and single quotes:
 ```yaml
 - name: Check Ren'Py formatting
   run: >-
-    uvx renpy-language-server@0.2.2 format
+    uvx renpy-language-server@0.2.3 format
     --indent 2
     --no-quotes
     --check game/
@@ -199,7 +199,7 @@ by the `python-format` extra, so select it with `uvx --from`:
 ```yaml
 - name: Check Ren'Py formatting
   run: >-
-    uvx --from "renpy-language-server[python-format]==0.2.2"
+    uvx --from "renpy-language-server[python-format]==0.2.3"
     renpy-language-server format
     --python
     --check game/
@@ -217,7 +217,7 @@ each `would reformat` line into an error annotation on the changed file:
   shell: bash
   run: |
     set +e
-    output="$(uvx renpy-language-server@0.2.2 format --check game/ 2>&1)"
+    output="$(uvx renpy-language-server@0.2.3 format --check game/ 2>&1)"
     rc=$?
     printf '%s\n' "$output"
     while IFS= read -r line; do
@@ -244,7 +244,7 @@ If your workflow already uses Python, install the pinned package with pip:
     python-version: "3.12"
 
 - name: Install formatter
-  run: pip install renpy-language-server==0.2.2
+  run: pip install renpy-language-server==0.2.3
 
 - name: Check Ren'Py formatting
   run: renpy-language-server format --check game/
@@ -270,8 +270,8 @@ found in each file. Check that Git is not rewriting line endings on checkout;
 if needed, add a `.gitattributes` entry such as `*.rpy text eol=lf`.
 
 **`--python` fails to install Ruff.** The option requires the extra. Use the
-`uvx --from "renpy-language-server[python-format]==0.2.2"` form shown above, or
-`pip install "renpy-language-server[python-format]==0.2.2"`.
+`uvx --from "renpy-language-server[python-format]==0.2.3"` form shown above, or
+`pip install "renpy-language-server[python-format]==0.2.3"`.
 
 **The workflow fails with exit code 2.** That is a usage error, not a
 formatting failure. Run the same command locally to see the message, and check
@@ -306,7 +306,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          output="$(uvx renpy-language-server@0.2.2 format --check game/ 2>&1)"
+          output="$(uvx renpy-language-server@0.2.3 format --check game/ 2>&1)"
           rc=$?
           printf '%s\n' "$output"
           while IFS= read -r line; do
@@ -323,5 +323,5 @@ jobs:
 To check a different directory or several paths, list them all:
 
 ```bash
-uvx renpy-language-server@0.2.2 format --check game/ tools/ extra.rpy
+uvx renpy-language-server@0.2.3 format --check game/ tools/ extra.rpy
 ```

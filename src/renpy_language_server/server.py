@@ -56,7 +56,7 @@ logging.getLogger("pygls").setLevel(_log_level)
 if _log_level == logging.DEBUG:
     log.setLevel(logging.DEBUG)
 
-server = LanguageServer("renpy-language-server", f"v{__version__}")
+server = LanguageServer("renpy-language-server", __version__)
 
 _settings = Settings()
 _index = WorkspaceIndex()
